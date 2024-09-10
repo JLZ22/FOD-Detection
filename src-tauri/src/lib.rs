@@ -1,6 +1,7 @@
 #![allow(clippy::type_complexity)]
 
 use std::io::{Read, Write};
+use std::path::Path;
 
 pub mod args;
 pub mod model;
@@ -10,6 +11,7 @@ pub use crate::args::Args;
 pub use crate::model::YOLOv8;
 pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
 pub use crate::yolo_result::{Bbox, Embedding, Point2, YOLOResult};
+use image::DynamicImage;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -118,6 +120,20 @@ pub fn check_font(font: &str) -> rusttype::Font<'static> {
     rusttype::Font::try_from_vec(buffer).unwrap()
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum LoadError {
+    #[error("Failed to load image: {0}")]
+    Image(#[from] image::ImageError),
+
+    #[error("Failed to load model: {0}")]
+    Model(#[from] ort::OrtError),
+}
+
+// handle panic in parent function
+pub fn get_img_from_path(path: &Path) -> Result<Vec<DynamicImage>, LoadError> {
+    let img = image::open(path)?;
+    Ok(vec![img])
+}
 
 pub fn run() {
     tauri::Builder::default()
