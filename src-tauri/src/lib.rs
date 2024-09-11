@@ -135,6 +135,7 @@ pub enum LoadError {
 */
 pub fn get_img_from_path(path: &Path) -> Result<DynamicImage, LoadError> {
     let img = image::open(path)?;
+    img.to_rgb8();
     Ok(img)
 }
 
@@ -153,22 +154,31 @@ pub fn image_to_base64(img: &DynamicImage) -> String {
     let mut image_data: Vec<u8> = Vec::new();
     img.write_to(&mut Cursor::new(&mut image_data), ImageOutputFormat::WebP)
         .unwrap(); // change to err handle
-    // let res_base64 = general_purpose::STANDARD.encode(image_data);
+                   // let res_base64 = general_purpose::STANDARD.encode(image_data);
     let res_base64 = rbase64::encode(&image_data);
     format!("data:image/png;base64,{}", res_base64)
 }
 
 #[tauri::command]
 fn start_streaming(camera_id: u32) -> String {
-    let img = get_img_from_path(Path::new(&format!("./resources/{camera_id}.jpg"))).unwrap();
-    image_to_base64(&img)
+    let imgs = (0..=2)
+        .map(|i| get_img_from_path(Path::new(&format!("./resources/images/person{}.jpg", i))).unwrap())
+        .collect::<Vec<_>>();
+    let mut model = YOLOv8::new(Args::default()).unwrap();
+    let results = model.run(&imgs).unwrap();
+    let imgs = model.plot_batch(&results, &imgs, None)
+    .iter()
+    .map(|img| image_to_base64(&DynamicImage::ImageRgb8(img.clone())))
+    .collect::<Vec<_>>();
+
+    imgs[camera_id as usize].clone()
 }
 
 pub fn run() {
     tauri::Builder::default()
         .setup(|_app| {
             // grab cameras and start inference
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![start_streaming])
