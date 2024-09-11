@@ -74,7 +74,7 @@ pub struct Args {
 impl Default for Args {
     fn default() -> Self {
         Args {
-            model: "../models/yolov8n.onnx".to_string(), // ONNX model path
+            model: "./models/yolov8n.onnx".to_string(), // ONNX model path
             source: "".to_string(),                      // Input path
             device_id: 0,                                // device id
             trt: false,                                  // Enable if using TensorRT
