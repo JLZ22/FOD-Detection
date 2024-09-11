@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use figment::{providers::{self, Format}, Figment};
+use figment::{
+    providers::{self, Format},
+    Figment,
+};
 
 use crate::YOLOTask;
 
@@ -72,33 +75,33 @@ impl Default for Args {
     fn default() -> Self {
         Args {
             model: "../models/yolov8n.onnx".to_string(), // ONNX model path
-            source: "".to_string(), // Input path
-            device_id: 0, // device id 
-            trt: false, // Enable if using TensorRT
-            cuda: true, // Enable if using CUDA
-            batch: 3,   // Set the batch size to 3
-            batch_min: 1,  // If using TensorRT, min_batch size
-            batch_max: 3,  // If using TensorRT, max_batch size
+            source: "".to_string(),                      // Input path
+            device_id: 0,                                // device id
+            trt: false,                                  // Enable if using TensorRT
+            cuda: true,                                  // Enable if using CUDA
+            batch: 3,                                    // Set the batch size to 3
+            batch_min: 1,                                // If using TensorRT, min_batch size
+            batch_max: 3,                                // If using TensorRT, max_batch size
             fp16: false, // Enable if you want to use FP16 precision with TensorRT
             task: Some(YOLOTask::Detect), // Define the task
-            nc: Some(5),  // Number of classes
-            nk: None, // Number of keypoints
-            nm: None, // Number of masks
-            width: Some(512),  // Input image width for YOLO model
+            nc: Some(5), // Number of classes
+            nk: None,    // Number of keypoints
+            nm: None,    // Number of masks
+            width: Some(512), // Input image width for YOLO model
             height: Some(512), // Input image height for YOLO model
             conf: 0.5,   // Confidence threshold for detections
             iou: 0.5,    // IoU threshold for Non-Max Suppression
-            kconf: 0.5,   // Keypoint confidence threshold (if keypoints are used)
-            plot: false,   // Enable plotting results
-            profile: false,  // Enable profiling if needed
+            kconf: 0.5,  // Keypoint confidence threshold (if keypoints are used)
+            plot: false, // Enable plotting results
+            profile: false, // Enable profiling if needed
         }
     }
-
-} 
+}
 
 impl Args {
     pub fn new_from_toml(toml: &Path) -> Self {
-        Figment::new().merge(providers::Toml::file(toml))
+        Figment::new()
+            .merge(providers::Toml::file(toml))
             .extract()
             .expect("to be valid")
     }
