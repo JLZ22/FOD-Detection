@@ -1,6 +1,6 @@
 #![allow(clippy::type_complexity)]
 
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
 pub mod args;
@@ -11,7 +11,7 @@ pub use crate::args::Args;
 pub use crate::model::YOLOv8;
 pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
 pub use crate::yolo_result::{Bbox, Embedding, Point2, YOLOResult};
-use image::DynamicImage;
+use image::{DynamicImage, ImageOutputFormat};
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -129,10 +129,39 @@ pub enum LoadError {
     Model(#[from] ort::OrtError),
 }
 
-// handle panic in parent function
-pub fn get_img_from_path(path: &Path) -> Result<Vec<DynamicImage>, LoadError> {
+/*
+1s for (4000, 3000) image
+0.35s for (2622, 1748) image
+*/
+pub fn get_img_from_path(path: &Path) -> Result<DynamicImage, LoadError> {
     let img = image::open(path)?;
-    Ok(vec![img])
+    Ok(img)
+}
+
+/*
+With rbase64::encode
+    2.4s for (4000, 3000) image
+        read time: 2.3989345 s, base64 time: 0.013330333 s
+    0.9s for (2622, 1748) image
+
+With general_purpose::STANDARD.encode
+    2.4s for (4000, 3000) image
+        read time: 2.36815725 s, base64 time: 0.04491725 s
+    0.9s for (2622, 1748) image
+*/
+pub fn image_to_base64(img: &DynamicImage) -> String {
+    let mut image_data: Vec<u8> = Vec::new();
+    img.write_to(&mut Cursor::new(&mut image_data), ImageOutputFormat::WebP)
+        .unwrap(); // change to err handle
+    // let res_base64 = general_purpose::STANDARD.encode(image_data);
+    let res_base64 = rbase64::encode(&image_data);
+    format!("data:image/png;base64,{}", res_base64)
+}
+
+#[tauri::command]
+fn start_streaming(camera_id: u32) -> String {
+    let img = get_img_from_path(Path::new(&format!("./resources/{camera_id}.jpg"))).unwrap();
+    image_to_base64(&img)
 }
 
 pub fn run() {
@@ -142,6 +171,7 @@ pub fn run() {
             
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![start_streaming])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
