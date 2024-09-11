@@ -410,7 +410,7 @@ impl YOLOv8 {
         skeletons: Option<&[(usize, usize)]>,
     ) -> ImageBuffer<image::Rgb<u8>, Vec<u8>> {
         // check font then load
-        let font = check_font("./fonts/Arial.ttf");
+        let font = check_font("./resources/fonts/Arial.ttf");
 
         let mut img = img0.to_rgb8();
 
