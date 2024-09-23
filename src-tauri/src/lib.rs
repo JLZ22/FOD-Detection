@@ -160,18 +160,17 @@ pub fn image_to_base64(img: &DynamicImage) -> String {
 }
 
 #[tauri::command]
-fn start_streaming(camera_id: u32) -> String {
+fn start_streaming() -> Vec<String> {
     let imgs = (0..=2)
         .map(|i| get_img_from_path(Path::new(&format!("./resources/images/person{}.jpg", i))).unwrap())
         .collect::<Vec<_>>();
-    let mut model = YOLOv8::new(Args::default()).unwrap();
+    let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
     let results = model.run(&imgs).unwrap();
-    let imgs = model.plot_batch(&results, &imgs, None)
+
+    model.plot_batch(&results, &imgs, None)
     .iter()
     .map(|img| image_to_base64(&DynamicImage::ImageRgb8(img.clone())))
-    .collect::<Vec<_>>();
-
-    imgs[camera_id as usize].clone()
+    .collect::<Vec<_>>().clone()
 }
 
 pub fn run() {

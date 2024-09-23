@@ -33,7 +33,6 @@
 	"type": "module",
 	"dependencies": {
 		"@tauri-apps/api": "^1.6.0",
-		"svelte-dnd-action": "^0.9.50",
-		"svelte-grid": "^5.1.2"
+		"svelte-dnd-action": "^0.9.50"
 	}
 }

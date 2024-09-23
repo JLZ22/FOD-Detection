@@ -1517,11 +1517,6 @@ svelte-eslint-parser@^0.41.0:
     postcss "^8.4.39"
     postcss-scss "^4.0.9"
 
-svelte-grid@^5.1.2:
-  version "5.1.2"
-  resolved "https://registry.yarnpkg.com/svelte-grid/-/svelte-grid-5.1.2.tgz#a8e8a2df665b4fe7b4444f66b2938bc58d54f887"
-  integrity sha512-Suwgb+L3LALhTyA7z4vn87UOJ+xBY6EeKa6MdWqDv/lZOtQgIZ21ry/I6txIn9IC0p8of4AiOXupkSMcZ+DEug==
-
 svelte-hmr@^0.16.0:
   version "0.16.0"
   resolved "https://registry.yarnpkg.com/svelte-hmr/-/svelte-hmr-0.16.0.tgz#9f345b7d1c1662f1613747ed7e82507e376c1716"
