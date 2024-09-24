@@ -13,8 +13,8 @@
 
 <div>
 	<ControlPanel/>
-	<CameraDisplay imageSrc={sources[0]} cameraId={0}/>
-	<CameraDisplay imageSrc={sources[1]} cameraId={1}/>
-	<CameraDisplay imageSrc={sources[2]} cameraId={2}/>
+	<CameraDisplay imageSrc={sources[0]} cameraId={0} windowName='Top View'/>
+	<CameraDisplay imageSrc={sources[1]} cameraId={1} windowName='Front View'/>
+	<CameraDisplay imageSrc={sources[2]} cameraId={2} windowName='Left View'/>
 </div>
 

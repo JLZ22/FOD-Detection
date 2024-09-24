@@ -1,6 +1,7 @@
 <script lang="ts">
     export let cameraId: number;  // Component receives the camera ID as a prop
     export let imageSrc: string;  // Store the current frame's Base64 image data
+    export let windowName: string;
 </script>
 
 <style>
@@ -9,6 +10,10 @@ img {
     height: auto;
 }
 </style>
+
+<div>
+<h2>{windowName}</h2>
+</div>
 
 {#if imageSrc}
 <img src={imageSrc} alt={`Camera ${cameraId + 1} Stream`} />
