@@ -1,7 +1,5 @@
 <script lang='ts'>
-    import {win1} from '$lib/win1.js';
-    import {win2} from '$lib/win2.js';
-    import {win3} from '$lib/win3.js';
+    import {top, front, left} from '$lib/win_store.js';
 	import { onDestroy, onMount } from 'svelte';
     import { listen } from '@tauri-apps/api/event';
     import { invoke } from '@tauri-apps/api/tauri';
@@ -31,9 +29,9 @@
 </script>
 
 <div>
-    <label for="win1">Win1:</label>
+    <label for="Top View">Top View:</label>
     {#if available_cameras.length > 0}
-        <select id="win1" bind:value={$win1}>
+        <select id="top" bind:value={$top}>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}
@@ -44,9 +42,9 @@
 </div>
 
 <div>
-    <label for="win2">Win2:</label>
+    <label for="Right View">Right View:</label>
     {#if available_cameras.length > 0}
-        <select id="win2" bind:value={$win2}>
+        <select id="front" bind:value={$front}>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}
@@ -57,9 +55,9 @@
 </div>
 
 <div>
-    <label for="win3">Win3:</label>
+    <label for="Left View">Left View:</label>
     {#if available_cameras.length > 0}
-        <select id="win3" bind:value={$win3}>
+        <select id="left" bind:value={$left}>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}

@@ -198,6 +198,7 @@ fn update_win_camera(win: i32, index: i32) -> bool {
 
 #[tauri::command]
 fn poll_and_emit_image_sources(window: tauri::Window) {
+    // TODO emit a message if the list of cameras changes (implement a frontend handler for this)
     println!("polling and emitting image sources");
     tauri::async_runtime::spawn(async move {
         let mut vals = vec![];
