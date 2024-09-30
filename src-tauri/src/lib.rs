@@ -11,7 +11,9 @@ pub use crate::args::Args;
 pub use crate::model::YOLOv8;
 pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
 pub use crate::yolo_result::{Bbox, Embedding, Point2, YOLOResult};
+use opencv::{videoio, prelude::*};
 use image::{DynamicImage, ImageOutputFormat};
+use mat2image::ToImage;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -159,6 +161,21 @@ pub fn image_to_base64(img: &DynamicImage) -> String {
     format!("data:image/png;base64,{}", res_base64)
 }
 
+
+fn get_cameras() -> Vec<videoio::VideoCapture> {
+    let mut cameras = Vec::new();
+
+    for i in 0..5 {
+        let cam = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
+
+        if cam.is_opened().unwrap() {
+            cameras.push(cam);
+        }
+    }
+
+    cameras
+}
+
 #[tauri::command]
 fn start_streaming() -> Vec<String> {
     let imgs = (0..=2)
@@ -173,7 +190,25 @@ fn start_streaming() -> Vec<String> {
     .collect::<Vec<_>>().clone()
 }
 
+#[tauri::command]
+fn update_win_camera(win: i32, index: i32) -> bool {
+    // TODO
+    return true;
+}
 
+#[tauri::command]
+fn poll_and_emit_image_sources(window: tauri::Window) {
+    println!("polling and emitting image sources");
+    tauri::async_runtime::spawn(async move {
+        let mut vals = vec![];
+        loop {
+            vals.push(vals.len());
+            window.emit("available-cameras", vals.clone()).unwrap();
+            println!("emitted {:?}", vals);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+    });
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -182,7 +217,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_streaming])
+        .invoke_handler(tauri::generate_handler![start_streaming, poll_and_emit_image_sources, update_win_camera])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

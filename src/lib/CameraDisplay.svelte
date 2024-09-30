@@ -15,7 +15,7 @@ img {
 <h2>{windowName}</h2>
 </div>
 
-{#if imageSrc}
+{#if imageSrc.length > 0}
 <img src={imageSrc} alt={`Camera ${cameraId + 1} Stream`} />
 {:else}
 <p>Waiting for camera {cameraId} stream...</p>

@@ -1,0 +1,6 @@
+[submodule "src-tauri/src-tauri"]
+	path = src-tauri/src-tauri
+	url = https://github.com/JLZ22/mat2image.git
+[submodule "src-tauri/mat2image"]
+	path = src-tauri/mat2image
+	url = https://github.com/JLZ22/mat2image.git
