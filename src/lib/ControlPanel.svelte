@@ -12,8 +12,8 @@
 
         try {
             unlisten = await listen('available-cameras', (event) => {
-                available_cameras = event.payload as number[];
-                console.log(available_cameras);
+                available_cameras = Array.from({length: (event.payload as number + 1)}, (_, i) => i);
+                console.log(event.payload as number);
             });
         } catch (e) {
             available_cameras = [];

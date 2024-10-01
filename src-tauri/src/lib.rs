@@ -162,21 +162,24 @@ pub fn image_to_base64(img: &DynamicImage) -> String {
 }
 
 
-fn get_cameras() -> Vec<videoio::VideoCapture> {
-    let mut cameras = Vec::new();
-
-    for i in 0..5 {
-        let cam = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
-
-        if cam.is_opened().unwrap() {
-            cameras.push(cam);
-        }
+// Binary search for the maximum camera index that is available
+// l should always be 0 
+fn get_max_camera_index(l: i32, r: i32) -> i32 {
+    if r - l <= 1 {
+        return l;
     }
 
-    cameras
+    let mid = (l + r) / 2;
+    let mut cap = videoio::VideoCapture::new(mid, videoio::CAP_ANY).unwrap();
+
+    if cap.is_opened().unwrap() {
+        cap.release().unwrap();
+        return get_max_camera_index(mid, r);
+    } else {
+        return get_max_camera_index(l, mid);
+    }
 }
 
-#[tauri::command]
 fn start_streaming() -> Vec<String> {
     let imgs = (0..=2)
         .map(|i| get_img_from_path(Path::new(&format!("./resources/images/person{}.jpg", i))).unwrap())
@@ -201,11 +204,8 @@ fn poll_and_emit_image_sources(window: tauri::Window) {
     // TODO emit a message if the list of cameras changes (implement a frontend handler for this)
     println!("polling and emitting image sources");
     tauri::async_runtime::spawn(async move {
-        let mut vals = vec![];
         loop {
-            vals.push(vals.len());
-            window.emit("available-cameras", vals.clone()).unwrap();
-            println!("emitted {:?}", vals);
+            window.emit("available-cameras", get_max_camera_index(0, 6)).unwrap();
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
@@ -215,10 +215,10 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|_app| {
             // grab cameras and start inference
-
+            // start_streaming();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_streaming, poll_and_emit_image_sources, update_win_camera])
+        .invoke_handler(tauri::generate_handler![poll_and_emit_image_sources, update_win_camera])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
