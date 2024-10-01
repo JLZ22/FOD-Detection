@@ -529,10 +529,10 @@ impl YOLOv8 {
     }
 
     pub fn plot_batch(
-        &self, 
-        ys: &[YOLOResult], 
+        &self,
+        ys: &[YOLOResult],
         xs0: &[DynamicImage],
-        skeletons: Option<&[(usize, usize)]>
+        skeletons: Option<&[(usize, usize)]>,
     ) -> Vec<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
         let mut imgs = Vec::new();
         for (_, (img, result)) in xs0.iter().zip(ys.iter()).enumerate() {

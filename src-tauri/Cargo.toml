@@ -24,7 +24,7 @@ ndarray = "0.15.6"
 ort = { version = "1.16.3", features = ["load-dynamic"] }
 regex = "1.9.6"
 rand = "0.8.5"
-image = "0.24.4"
+image = "0.24.9"
 chrono = "0.4.31"
 rusttype = "0.9.3"
 dirs = "5.0.1"
