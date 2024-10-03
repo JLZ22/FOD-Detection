@@ -18,6 +18,7 @@ use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
 
 const NUM_CAMERAS: usize = 3;
+const NO_INFERENCE: bool = true;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -306,6 +307,24 @@ fn start_streaming(window: tauri::Window) {
                 }
             }
             let get_frame_elapsed = start.elapsed();
+
+            if NO_INFERENCE {
+                let start = Instant::now();
+                for (i, img) in imgs.iter().enumerate() {
+                    if final_img_strs[i].is_empty() {
+                        final_img_strs[i] = image_to_base64(&img);
+                    }
+                }
+                let base64_elapsed = start.elapsed();
+
+                println!("Get frame elapsed: {:?}", get_frame_elapsed);
+                println!("Base64 elapsed: {:?}\n", base64_elapsed);
+
+                window.emit("image-sources", final_img_strs).unwrap();
+                imgs.clear();
+
+                continue;
+            }
 
             let start = Instant::now();
             // run inference
