@@ -158,15 +158,16 @@ pub fn image_to_base64(img: &DynamicImage) -> String {
 // Binary search for the maximum camera index that is available
 // l should always be 0
 fn get_camera_indices() -> Vec<i32> {
+    let start = Instant::now();
     let mut indices = vec![];
-    for i in 0..10 {
+    for i in 0..5 {
         let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
         if cap.is_opened().unwrap() {
             indices.push(i);
             cap.release().unwrap();
         }
     }
-
+    println!("get_camera_indices: {:?}", start.elapsed());
     indices
 }
 
@@ -273,7 +274,6 @@ fn start_streaming(window: tauri::Window) {
 
         // define vector to store images
         let mut imgs = vec![];
-        let mut print_time_flag = true;
         loop {
             /*
             Define vector to store the baset64 encoded images.
@@ -327,13 +327,12 @@ fn start_streaming(window: tauri::Window) {
             }
             let base64_elapsed = start.elapsed();
 
-            if print_time_flag {
-                println!("Get frame elapsed: {:?}", get_frame_elapsed);
-                println!("Inference elapsed: {:?}", inference_elapsed);
-                println!("Plot elapsed: {:?}", plot_elapsed);
-                println!("Base64 elapsed: {:?}", base64_elapsed);
-                print_time_flag = false;
-            }
+            // print times
+            println!("Get frame elapsed: {:?}", get_frame_elapsed);
+            println!("Inference elapsed: {:?}", inference_elapsed);
+            println!("Plot elapsed: {:?}", plot_elapsed);
+            println!("Base64 elapsed: {:?}\n", base64_elapsed);
+
             window.emit("image-sources", final_img_strs).unwrap();
             imgs.clear();
         }
@@ -344,10 +343,12 @@ fn start_streaming(window: tauri::Window) {
 fn poll_and_emit_image_sources(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
         loop {
+            let indices = get_camera_indices();
+            println!("Available cameras: {:?}", indices);
             window
-                .emit("available-cameras", get_camera_indices())
+                .emit("available-cameras", indices)
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(100));
+            std::thread::sleep(std::time::Duration::from_secs(20));
         }
     });
 }
