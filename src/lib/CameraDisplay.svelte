@@ -16,7 +16,11 @@ img {
 </div>
 
 {#if imageSrc.length > 0}
-<img src={imageSrc} alt={`Camera ${cameraId + 1} Stream`} />
+{#if imageSrc.includes('Error')}
+    <p>{imageSrc} Camera source: {cameraId}</p>
+{:else}
+    <img src={imageSrc} alt={`Waiting on camera index: ${cameraId} ...`} />
+{/if}
 {:else}
 <p>Waiting for camera {cameraId} stream...</p>
 {/if}

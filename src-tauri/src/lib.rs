@@ -11,9 +11,11 @@ pub use crate::args::Args;
 pub use crate::model::YOLOv8;
 pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
 pub use crate::yolo_result::{Bbox, Embedding, Point2, YOLOResult};
-use opencv::{videoio, prelude::*};
-use image::{DynamicImage, ImageOutputFormat};
+use image::{DynamicImage, ImageFormat};
 use mat2image::ToImage;
+use opencv::{prelude::*, videoio};
+
+const NUM_CAMERAS: usize = 3;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -132,16 +134,6 @@ pub enum LoadError {
 }
 
 /*
-1s for (4000, 3000) image
-0.35s for (2622, 1748) image
-*/
-pub fn get_img_from_path(path: &Path) -> Result<DynamicImage, LoadError> {
-    let img = image::open(path)?;
-    img.to_rgb8();
-    Ok(img)
-}
-
-/*
 With rbase64::encode
     2.4s for (4000, 3000) image
         read time: 2.3989345 s, base64 time: 0.013330333 s
@@ -154,59 +146,164 @@ With general_purpose::STANDARD.encode
 */
 pub fn image_to_base64(img: &DynamicImage) -> String {
     let mut image_data: Vec<u8> = Vec::new();
-    img.write_to(&mut Cursor::new(&mut image_data), ImageOutputFormat::WebP)
+    img.write_to(&mut Cursor::new(&mut image_data), ImageFormat::WebP)
         .unwrap(); // change to err handle
                    // let res_base64 = general_purpose::STANDARD.encode(image_data);
     let res_base64 = rbase64::encode(&image_data);
     format!("data:image/png;base64,{}", res_base64)
 }
 
-
 // Binary search for the maximum camera index that is available
-// l should always be 0 
-fn get_max_camera_index(l: i32, r: i32) -> i32 {
-    if r - l <= 1 {
-        return l;
+// l should always be 0
+fn get_camera_indices() -> Vec<i32> {
+    let mut indices = vec![];
+    for i in 0..10 {
+        let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
+        if cap.is_opened().unwrap() {
+            indices.push(i);
+            cap.release().unwrap();
+        }
     }
 
-    let mid = (l + r) / 2;
-    let mut cap = videoio::VideoCapture::new(mid, videoio::CAP_ANY).unwrap();
-
-    if cap.is_opened().unwrap() {
-        cap.release().unwrap();
-        return get_max_camera_index(mid, r);
-    } else {
-        return get_max_camera_index(l, mid);
-    }
+    indices
 }
 
-fn start_streaming() -> Vec<String> {
-    let imgs = (0..=2)
-        .map(|i| get_img_from_path(Path::new(&format!("./resources/images/person{}.jpg", i))).unwrap())
-        .collect::<Vec<_>>();
-    let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
-    let results = model.run(&imgs).unwrap();
-
-    model.plot_batch(&results, &imgs, None)
-    .iter()
-    .map(|img| image_to_base64(&DynamicImage::ImageRgb8(img.clone())))
-    .collect::<Vec<_>>().clone()
+// Get a frame from a video capture object and convert it to a DynamicImage
+fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Option<DynamicImage> {
+    let mut img = Mat::default();
+    if cap.read(&mut img).unwrap_or(false) {
+        match img.to_image_par() {
+            Ok(image) => return Some(image),
+            Err(_) => return None,
+        }
+    } else {
+        return None;
+    }
 }
 
 #[tauri::command]
-fn update_win_camera(win: i32, index: i32) -> bool {
-    // TODO
-    return true;
+fn update_camera(window: tauri::Window, win_index: i32, cam_index: i32) {
+    window.trigger(
+        "update-camera",
+        Some(format!("{win_index} {cam_index}").to_string()),
+    );
+}
+
+#[tauri::command]
+fn start_streaming(window: tauri::Window) {
+    tauri::async_runtime::spawn(async move {
+        let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
+
+        // define video capture objects with camera index 0
+        let mut caps = vec![];
+        for _ in 0..=2 {
+            match videoio::VideoCapture::new(0, videoio::CAP_ANY) {
+                Ok(cap) => caps.push(Some(cap)),
+                Err(_) => caps.push(None),
+            }
+        }
+        // wrap the video objects in ArcMutex to allow for shared mutable access
+        let caps = std::sync::Arc::new(std::sync::Mutex::new(caps));
+
+        /*
+        Clone the ArcMutex to pass to the event handler
+        this operation increments the reference count but
+        does not clone the underlying data
+        */
+        let caps_clone = std::sync::Arc::clone(&caps);
+
+        /*
+        Define event handler to update the list of video capture objects
+        when a message is received from the frontend.
+        */
+        let _event_handler = window.listen("update-camera", move |msg| {
+            let win_index;
+            let cam_index;
+            match msg.payload() {
+                Some(msg) => {
+                    let msg = msg
+                        .split_whitespace()
+                        .map(|s| s.parse().unwrap_or(-1))
+                        .collect::<Vec<i32>>();
+                    win_index = msg[0];
+                    if win_index < 0 || win_index >= NUM_CAMERAS as i32 {
+                        return;
+                    }
+                    cam_index = msg[1];
+                }
+                None => return,
+            }            
+            let mut caps = caps_clone.lock().unwrap();
+            match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
+                Ok(cap) => {
+                    caps[win_index as usize] = Some(cap);
+                }
+                Err(_) => {
+                    caps[win_index as usize] = None;
+                }
+            }
+        });
+
+        // define vector to store images
+        let mut imgs = vec![];
+        loop {
+            /*
+            Define vector to store the baset64 encoded images. 
+            If an image is invalid, an error message is pushed 
+            instead. 
+            */
+            let mut final_img_strs = vec!["".to_string(); NUM_CAMERAS];
+            {
+                // limit the scope of the lock to avoid deadlock with event_handler
+                let mut caps = caps.lock().unwrap();
+
+                // get frames from each camera
+                for (i, cap) in caps[..].iter_mut().enumerate() {
+                    if let Some(c) = cap {
+                        if let Some(img) = get_frame_from_cap(c) {
+                            // can get frame --> image is valid and push image
+                            imgs.push(img);
+                        } else {
+                            // can't get frame --> image is invalid and push empty image
+                            imgs.push(DynamicImage::default());
+                            final_img_strs[i] = "Error: Cannot fetch image from camera.".to_string();
+                        }
+                    } else {
+                        // camera does not exist --> image is invalid and push empty image
+                        imgs.push(DynamicImage::default());
+                        final_img_strs[i] = "Error: Camera does not exist.".to_string();
+                    }
+                }
+            }
+
+            // run inference
+            let results = model.run(&imgs).unwrap();
+
+            // plot images
+            let ploted_imgs = model.plot_batch(&results, &imgs[..], None);
+
+            // convert images to base64 and
+            for (i, img) in ploted_imgs.iter().enumerate() {
+                if final_img_strs[i].is_empty() {
+                    let img_str = image_to_base64(&DynamicImage::ImageRgb8(img.clone()));
+                    final_img_strs[i] = img_str;
+                }
+            }
+
+            window.emit("image-sources", final_img_strs).unwrap();
+            imgs.clear();
+        }
+    });
 }
 
 #[tauri::command]
 fn poll_and_emit_image_sources(window: tauri::Window) {
-    // TODO emit a message if the list of cameras changes (implement a frontend handler for this)
-    println!("polling and emitting image sources");
     tauri::async_runtime::spawn(async move {
         loop {
-            window.emit("available-cameras", get_max_camera_index(0, 6)).unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            window
+                .emit("available-cameras", get_camera_indices())
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(100));
         }
     });
 }
@@ -218,7 +315,11 @@ pub fn run() {
             // start_streaming();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![poll_and_emit_image_sources, update_win_camera])
+        .invoke_handler(tauri::generate_handler![
+            poll_and_emit_image_sources,
+            start_streaming,
+            update_camera,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

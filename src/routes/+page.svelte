@@ -9,20 +9,22 @@
 	let sources = ['','',''];
 	let unlisten: (() => void) | undefined;
 	const unsubscribe_top = top.subscribe(value => {
-		invoke('update_win_camera', {win: 1, index: value})
+		invoke('update_camera', {winIndex: 0, camIndex: value});
 	});
 	const unsubscribe_front = front.subscribe(value => {
-		invoke('update_win_camera', {win: 2, index: value})
+		invoke('update_camera', {winIndex: 1, camIndex: value});
 	});
 	const unsubscribe_left = left.subscribe(value => {
-		invoke('update_win_camera', {win: 3, index: value})
+		invoke('update_camera', {winIndex: 2, camIndex: value});
 	});
 
 	onMount(async () => {
+		invoke('start_streaming');
 
 		try {
 			unlisten = await listen('image-sources', (event) => {
 				sources = event.payload as string[];
+				console.log(sources);
 			});
 		} catch (e) {
 			sources = ['','',''];

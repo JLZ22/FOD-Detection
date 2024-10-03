@@ -75,13 +75,13 @@ impl Default for Args {
     fn default() -> Self {
         Args {
             model: "./models/yolov8n.onnx".to_string(), // ONNX model path
-            source: "".to_string(),                      // Input path
-            device_id: 0,                                // device id
-            trt: false,                                  // Enable if using TensorRT
-            cuda: true,                                  // Enable if using CUDA
-            batch: 3,                                    // Set the batch size to 3
-            batch_min: 1,                                // If using TensorRT, min_batch size
-            batch_max: 3,                                // If using TensorRT, max_batch size
+            source: "".to_string(),                     // Input path
+            device_id: 0,                               // device id
+            trt: false,                                 // Enable if using TensorRT
+            cuda: true,                                 // Enable if using CUDA
+            batch: 3,                                   // Set the batch size to 3
+            batch_min: 1,                               // If using TensorRT, min_batch size
+            batch_max: 3,                               // If using TensorRT, max_batch size
             fp16: false, // Enable if you want to use FP16 precision with TensorRT
             task: Some(YOLOTask::Detect), // Define the task
             nc: Some(5), // Number of classes
