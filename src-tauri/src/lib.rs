@@ -2,6 +2,8 @@
 
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub mod args;
 pub mod model;
@@ -189,12 +191,22 @@ fn update_camera(window: tauri::Window, win_index: i32, cam_index: i32) {
     );
 }
 
+/*
+Times for 3 video capture objects using Mac FaceTime HD Camera:
+    Initial camera elapsed: 1.427801208s
+    Event handler elapsed: 0ns
+    Get frame elapsed: 103.224708ms
+    Inference elapsed: 2.240577042s
+    Plot elapsed: 185.965083ms
+    Base64 elapsed: 1.199653625s
+*/
 #[tauri::command]
 fn start_streaming(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
         let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
         // define video capture objects with camera index 0
+        let start = Instant::now();
         let mut caps = vec![];
         for _ in 0..=2 {
             match videoio::VideoCapture::new(0, videoio::CAP_ANY) {
@@ -202,21 +214,27 @@ fn start_streaming(window: tauri::Window) {
                 Err(_) => caps.push(None),
             }
         }
+        let initial_camera_elapsed = start.elapsed();
+
         // wrap the video objects in ArcMutex to allow for shared mutable access
-        let caps = std::sync::Arc::new(std::sync::Mutex::new(caps));
+        let caps = Arc::new(Mutex::new(caps));
 
         /*
         Clone the ArcMutex to pass to the event handler
         this operation increments the reference count but
         does not clone the underlying data
         */
-        let caps_clone = std::sync::Arc::clone(&caps);
+        let caps_clone = Arc::clone(&caps);
+
+        let event_elapsed = Arc::new(Mutex::new(Duration::new(0, 0)));
+        let event_elapsed_clone = Arc::clone(&event_elapsed);
 
         /*
         Define event handler to update the list of video capture objects
         when a message is received from the frontend.
         */
         let _event_handler = window.listen("update-camera", move |msg| {
+            let start = Instant::now();
             let win_index;
             let cam_index;
             match msg.payload() {
@@ -232,7 +250,7 @@ fn start_streaming(window: tauri::Window) {
                     cam_index = msg[1];
                 }
                 None => return,
-            }            
+            }
             let mut caps = caps_clone.lock().unwrap();
             match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
                 Ok(cap) => {
@@ -242,16 +260,27 @@ fn start_streaming(window: tauri::Window) {
                     caps[win_index as usize] = None;
                 }
             }
+
+            let mut elapsed = event_elapsed_clone.lock().unwrap();
+            *elapsed = start.elapsed();
         });
+
+        println!("Initial camera elapsed: {:?}", initial_camera_elapsed);
+        println!(
+            "Event handler elapsed: {:?}",
+            *event_elapsed.lock().unwrap()
+        );
 
         // define vector to store images
         let mut imgs = vec![];
+        let mut print_time_flag = true;
         loop {
             /*
-            Define vector to store the baset64 encoded images. 
-            If an image is invalid, an error message is pushed 
-            instead. 
+            Define vector to store the baset64 encoded images.
+            If an image is invalid, an error message is pushed
+            instead.
             */
+            let start = Instant::now();
             let mut final_img_strs = vec!["".to_string(); NUM_CAMERAS];
             {
                 // limit the scope of the lock to avoid deadlock with event_handler
@@ -266,7 +295,8 @@ fn start_streaming(window: tauri::Window) {
                         } else {
                             // can't get frame --> image is invalid and push empty image
                             imgs.push(DynamicImage::default());
-                            final_img_strs[i] = "Error: Cannot fetch image from camera.".to_string();
+                            final_img_strs[i] =
+                                "Error: Cannot fetch image from camera.".to_string();
                         }
                     } else {
                         // camera does not exist --> image is invalid and push empty image
@@ -275,13 +305,19 @@ fn start_streaming(window: tauri::Window) {
                     }
                 }
             }
+            let get_frame_elapsed = start.elapsed();
 
+            let start = Instant::now();
             // run inference
             let results = model.run(&imgs).unwrap();
+            let inference_elapsed = start.elapsed();
 
+            let start = Instant::now();
             // plot images
             let ploted_imgs = model.plot_batch(&results, &imgs[..], None);
+            let plot_elapsed = start.elapsed();
 
+            let start = Instant::now();
             // convert images to base64 and
             for (i, img) in ploted_imgs.iter().enumerate() {
                 if final_img_strs[i].is_empty() {
@@ -289,7 +325,15 @@ fn start_streaming(window: tauri::Window) {
                     final_img_strs[i] = img_str;
                 }
             }
+            let base64_elapsed = start.elapsed();
 
+            if print_time_flag {
+                println!("Get frame elapsed: {:?}", get_frame_elapsed);
+                println!("Inference elapsed: {:?}", inference_elapsed);
+                println!("Plot elapsed: {:?}", plot_elapsed);
+                println!("Base64 elapsed: {:?}", base64_elapsed);
+                print_time_flag = false;
+            }
             window.emit("image-sources", final_img_strs).unwrap();
             imgs.clear();
         }
