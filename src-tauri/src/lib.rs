@@ -2,7 +2,7 @@
 
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 pub mod args;
@@ -220,7 +220,7 @@ fn start_streaming(window: tauri::Window) {
                 Err(_) => caps.push(None),
             }
         }
-        let initial_camera_elapsed = start.elapsed();
+        println!("Initial camera elapsed: {:?}", start.elapsed());
 
         // wrap the video objects in ArcMutex to allow for shared mutable access
         let caps = Arc::new(Mutex::new(caps));
@@ -231,9 +231,6 @@ fn start_streaming(window: tauri::Window) {
         does not clone the underlying data
         */
         let caps_clone = Arc::clone(&caps);
-
-        let event_elapsed = Arc::new(Mutex::new(Duration::new(0, 0)));
-        let event_elapsed_clone = Arc::clone(&event_elapsed);
 
         /*
         Define event handler to update the list of video capture objects
@@ -267,15 +264,8 @@ fn start_streaming(window: tauri::Window) {
                 }
             }
 
-            let mut elapsed = event_elapsed_clone.lock().unwrap();
-            *elapsed = start.elapsed();
+            println!("Event handler elapsed: {:?}", start.elapsed());
         });
-
-        println!("Initial camera elapsed: {:?}", initial_camera_elapsed);
-        println!(
-            "Event handler elapsed: {:?}",
-            *event_elapsed.lock().unwrap()
-        );
 
         // define vector to store images
         let mut imgs = vec![];
