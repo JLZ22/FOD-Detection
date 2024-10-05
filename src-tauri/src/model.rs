@@ -5,6 +5,7 @@ use image::{DynamicImage, GenericImageView, ImageBuffer};
 use ndarray::{s, Array, Axis, IxDyn};
 use rand::{thread_rng, Rng};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::{
     check_font, gen_time_string, non_max_suppression, Args, Batch, Bbox, Embedding, OrtBackend,
@@ -169,25 +170,40 @@ impl YOLOv8 {
 
     pub fn run(&mut self, xs: &Vec<DynamicImage>) -> Result<Vec<YOLOResult>> {
         // pre-process
+        let start = Instant::now();
         let t_pre = std::time::Instant::now();
         let xs_ = self.preprocess(xs)?;
         if self.profile {
             println!("[Model Preprocess]: {:?}", t_pre.elapsed());
         }
+        let pre_time = start.elapsed();
 
         // run
+        let start = Instant::now();
         let t_run = std::time::Instant::now();
         let ys = self.engine.run(xs_, self.profile)?;
         if self.profile {
             println!("[Model Inference]: {:?}", t_run.elapsed());
         }
+        let run_time = start.elapsed();
 
         // post-process
+        let start = Instant::now();
         let t_post = std::time::Instant::now();
         let ys = self.postprocess(ys, xs)?;
         if self.profile {
             println!("[Model Postprocess]: {:?}", t_post.elapsed());
         }
+        let post_time = start.elapsed();
+
+        // print inference times 
+        println!(
+            "[Model Inference Time]: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
+            pre_time + run_time + post_time,
+            pre_time,
+            run_time,
+            post_time
+        );
 
         // plot and save
         if self.plot {

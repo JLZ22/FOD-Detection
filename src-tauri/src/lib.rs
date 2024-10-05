@@ -18,7 +18,7 @@ use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
 
 const NUM_CAMERAS: usize = 3;
-const NO_INFERENCE: bool = true;
+const NO_INFERENCE: bool = false;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -201,6 +201,10 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
     Inference elapsed: 2.240577042s
     Plot elapsed: 185.965083ms
     Base64 elapsed: 1.199653625s
+
+TODO: resize the images to smaller dimensions
+TODO: send raw bytes instead of base64 encoding
+TODO: read images on both front and backend and only send the bounding box info
 */
 #[tauri::command]
 fn start_streaming(window: tauri::Window) {
@@ -329,7 +333,6 @@ fn start_streaming(window: tauri::Window) {
             let start = Instant::now();
             // run inference
             let results = model.run(&imgs).unwrap();
-            let inference_elapsed = start.elapsed();
 
             let start = Instant::now();
             // plot images
@@ -348,7 +351,6 @@ fn start_streaming(window: tauri::Window) {
 
             // print times
             println!("Get frame elapsed: {:?}", get_frame_elapsed);
-            println!("Inference elapsed: {:?}", inference_elapsed);
             println!("Plot elapsed: {:?}", plot_elapsed);
             println!("Base64 elapsed: {:?}\n", base64_elapsed);
 
@@ -367,7 +369,7 @@ fn poll_and_emit_image_sources(window: tauri::Window) {
             window
                 .emit("available-cameras", indices)
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
 }
