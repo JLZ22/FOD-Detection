@@ -2,8 +2,8 @@
 
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub mod args;
 pub mod model;
