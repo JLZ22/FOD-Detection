@@ -330,7 +330,6 @@ fn start_streaming(window: tauri::Window) {
                 continue;
             }
 
-            let start = Instant::now();
             // run inference
             let results = model.run(&imgs).unwrap();
 
