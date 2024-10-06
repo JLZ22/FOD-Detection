@@ -174,13 +174,21 @@ fn get_camera_indices() -> Vec<i32> {
 
 // Get a frame from a video capture object and convert it to a DynamicImage
 fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Option<DynamicImage> {
+    let start = Instant::now();
     let mut img = Mat::default();
     if cap.read(&mut img).unwrap_or(false) {
         match img.to_image_par() {
-            Ok(image) => return Some(image),
-            Err(_) => return None,
+            Ok(image) => {
+                println!("get_frame_from_cap: {:?}", start.elapsed());
+                return Some(image);
+            }
+            Err(_) => {
+                println!("get_frame_from_cap: {:?}", start.elapsed());
+                return None;
+            }
         }
     } else {
+        println!("get_frame_from_cap: {:?}", start.elapsed());
         return None;
     }
 }
@@ -194,10 +202,13 @@ fn update_camera(window: tauri::Window, win_index: i32, cam_index: i32) {
 }
 
 /*
-Create an event handler that listens for update-camera messages from the 
+Create an event handler that listens for update-camera messages from the
 frontend and updates the list of video capture objects accordingly.
 */
-fn build_camera_update_handler(window: &tauri::Window, caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>) -> tauri::EventHandler {
+fn build_camera_update_handler(
+    window: &tauri::Window,
+    caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>,
+) -> tauri::EventHandler {
     window.listen("update-camera", move |msg| {
         let start = Instant::now();
         let win_index;
@@ -239,7 +250,7 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
     Plot elapsed: 185.965083ms
     Base64 elapsed: 1.199653625s
 
-TODO: resize the images to smaller dimensions
+TODO: grab images with multiple threads
 TODO: send raw bytes instead of base64 encoding
 TODO: read images on both front and backend and only send the bounding box info
 */
@@ -316,7 +327,7 @@ fn start_streaming(window: tauri::Window) {
 
                 continue;
             }
-            
+
             // run inference
             let results = model.run(&imgs).unwrap();
 
@@ -351,9 +362,7 @@ fn poll_and_emit_image_sources(window: tauri::Window) {
         loop {
             let indices = get_camera_indices();
             println!("Available cameras: {:?}", indices);
-            window
-                .emit("available-cameras", indices)
-                .unwrap();
+            window.emit("available-cameras", indices).unwrap();
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });

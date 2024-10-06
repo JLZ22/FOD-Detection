@@ -196,7 +196,7 @@ impl YOLOv8 {
         }
         let post_time = start.elapsed();
 
-        // print inference times 
+        // print inference times
         println!(
             "[Model Inference Time]: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
             pre_time + run_time + post_time,
