@@ -18,7 +18,7 @@ use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
 
 const NUM_CAMERAS: usize = 3;
-const NO_INFERENCE: bool = false;
+const INFERENCE: bool = true;
 
 pub fn non_max_suppression(
     xs: &mut Vec<(Bbox, Option<Vec<Point2>>, Option<Vec<f32>>)>,
@@ -194,6 +194,43 @@ fn update_camera(window: tauri::Window, win_index: i32, cam_index: i32) {
 }
 
 /*
+Create an event handler that listens for update-camera messages from the 
+frontend and updates the list of video capture objects accordingly.
+*/
+fn build_camera_update_handler(window: &tauri::Window, caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>) -> tauri::EventHandler {
+    window.listen("update-camera", move |msg| {
+        let start = Instant::now();
+        let win_index;
+        let cam_index;
+        match msg.payload() {
+            Some(msg) => {
+                let msg = msg
+                    .split_whitespace()
+                    .map(|s| s.parse().unwrap_or(-1))
+                    .collect::<Vec<i32>>();
+                win_index = msg[0];
+                if win_index < 0 || win_index >= NUM_CAMERAS as i32 {
+                    return;
+                }
+                cam_index = msg[1];
+            }
+            None => return,
+        }
+        let mut caps = caps_clone.lock().unwrap();
+        match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
+            Ok(cap) => {
+                caps[win_index as usize] = Some(cap);
+            }
+            Err(_) => {
+                caps[win_index as usize] = None;
+            }
+        }
+
+        println!("Event handler elapsed: {:?}", start.elapsed());
+    })
+}
+
+/*
 Times for 3 video capture objects using Mac FaceTime HD Camera:
     Initial camera elapsed: 1.427801208s
     Event handler elapsed: 0ns
@@ -225,51 +262,12 @@ fn start_streaming(window: tauri::Window) {
         // wrap the video objects in ArcMutex to allow for shared mutable access
         let caps = Arc::new(Mutex::new(caps));
 
-        /*
-        Clone the ArcMutex to pass to the event handler
-        this operation increments the reference count but
-        does not clone the underlying data
-        */
-        let caps_clone = Arc::clone(&caps);
-
-        /*
-        Define event handler to update the list of video capture objects
-        when a message is received from the frontend.
-        */
-        let _event_handler = window.listen("update-camera", move |msg| {
-            let start = Instant::now();
-            let win_index;
-            let cam_index;
-            match msg.payload() {
-                Some(msg) => {
-                    let msg = msg
-                        .split_whitespace()
-                        .map(|s| s.parse().unwrap_or(-1))
-                        .collect::<Vec<i32>>();
-                    win_index = msg[0];
-                    if win_index < 0 || win_index >= NUM_CAMERAS as i32 {
-                        return;
-                    }
-                    cam_index = msg[1];
-                }
-                None => return,
-            }
-            let mut caps = caps_clone.lock().unwrap();
-            match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
-                Ok(cap) => {
-                    caps[win_index as usize] = Some(cap);
-                }
-                Err(_) => {
-                    caps[win_index as usize] = None;
-                }
-            }
-
-            println!("Event handler elapsed: {:?}", start.elapsed());
-        });
+        // create event handler to update video capture objects
+        let _event_handler = build_camera_update_handler(&window, Arc::clone(&caps));
 
         // define vector to store images
-        let mut imgs = vec![];
         loop {
+            let mut imgs = vec![];
             /*
             Define vector to store the baset64 encoded images.
             If an image is invalid, an error message is pushed
@@ -302,7 +300,7 @@ fn start_streaming(window: tauri::Window) {
             }
             let get_frame_elapsed = start.elapsed();
 
-            if NO_INFERENCE {
+            if !INFERENCE {
                 let start = Instant::now();
                 for (i, img) in imgs.iter().enumerate() {
                     if final_img_strs[i].is_empty() {
@@ -315,11 +313,10 @@ fn start_streaming(window: tauri::Window) {
                 println!("Base64 elapsed: {:?}\n", base64_elapsed);
 
                 window.emit("image-sources", final_img_strs).unwrap();
-                imgs.clear();
 
                 continue;
             }
-
+            
             // run inference
             let results = model.run(&imgs).unwrap();
 
@@ -344,7 +341,6 @@ fn start_streaming(window: tauri::Window) {
             println!("Base64 elapsed: {:?}\n", base64_elapsed);
 
             window.emit("image-sources", final_img_strs).unwrap();
-            imgs.clear();
         }
     });
 }
