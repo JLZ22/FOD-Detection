@@ -11,6 +11,27 @@ use opencv::{prelude::*, videoio};
 const NUM_CAMERAS: usize = 3;
 const INFERENCE: bool = true;
 
+struct Payload {
+    processed_image: Vec<u8>,
+    error_message: String,
+}
+
+impl Payload {
+    fn new(processed_image: Vec<u8>, error_message: String) -> Self {
+        Self {
+            processed_image,
+            error_message,
+        }
+    }
+
+    fn default() -> Self {
+        Self {
+            processed_image: vec![],
+            error_message: "".to_string(),
+        }
+    }
+}
+
 /*
 With rbase64::encode
     2.4s for (4000, 3000) image
