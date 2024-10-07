@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 
+use crate::app_backend::log;
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView, ImageBuffer};
 use ndarray::{s, Array, Axis, IxDyn};
@@ -168,13 +169,17 @@ impl YOLOv8 {
         Ok(ys)
     }
 
-    pub fn run(&mut self, xs: &Vec<DynamicImage>) -> Result<Vec<YOLOResult>> {
+    pub fn run(
+        &mut self,
+        xs: &Vec<DynamicImage>,
+        f: &mut std::fs::File,
+    ) -> Result<Vec<YOLOResult>> {
         // pre-process
         let start = Instant::now();
         let t_pre = std::time::Instant::now();
         let xs_ = self.preprocess(xs)?;
         if self.profile {
-            println!("[Model Preprocess]: {:?}", t_pre.elapsed());
+            log(format!("[Model Preprocess]: {:?}", t_pre.elapsed()), f);
         }
         let pre_time = start.elapsed();
 
@@ -183,7 +188,7 @@ impl YOLOv8 {
         let t_run = std::time::Instant::now();
         let ys = self.engine.run(xs_, self.profile)?;
         if self.profile {
-            println!("[Model Inference]: {:?}", t_run.elapsed());
+            log(format!("[Model Inference]: {:?}", t_run.elapsed()), f);
         }
         let run_time = start.elapsed();
 
@@ -192,18 +197,21 @@ impl YOLOv8 {
         let t_post = std::time::Instant::now();
         let ys = self.postprocess(ys, xs)?;
         if self.profile {
-            println!("[Model Postprocess]: {:?}", t_post.elapsed());
+            log(format!("[Model Postprocess]: {:?}", t_post.elapsed()), f);
         }
         let post_time = start.elapsed();
 
-        // print inference times
-        println!(
-            "[Model Inference Time]: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
+        // log inference times
+        let total = format!(
+            "[Model inference]: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
             pre_time + run_time + post_time,
             pre_time,
             run_time,
             post_time
         );
+        {
+            log(total, f);
+        }
 
         // plot and save
         if self.plot {
@@ -471,11 +479,7 @@ impl YOLOv8 {
         imgs
     }
 
-    pub fn plot_and_save(
-        &self,
-        ys: &[YOLOResult],
-        xs0: &[DynamicImage],
-    ) {
+    pub fn plot_and_save(&self, ys: &[YOLOResult], xs0: &[DynamicImage]) {
         for (_idb, (img0, y)) in xs0.iter().zip(ys.iter()).enumerate() {
             let img = self.plot(y, img0);
 

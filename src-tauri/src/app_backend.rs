@@ -1,61 +1,43 @@
-use crate::model::YOLOv8;
 use crate::args::Args;
-use std::io::Cursor;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use crate::model::YOLOv8;
 use image::{DynamicImage, ImageFormat};
 use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
+use serde::Serialize;
+use std::io::{Cursor, Write};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const NUM_CAMERAS: usize = 3;
+const POLL_DURATION: Duration = Duration::from_secs(2);
 const INFERENCE: bool = true;
+const LOG_OUTPUT: bool = true;
 
+#[derive(Debug, Clone, Serialize)]
 struct Payload {
-    processed_image: Vec<u8>,
-    error_message: String,
+    image: Vec<u8>,
+    error: String,
 }
 
+#[allow(dead_code)]
 impl Payload {
-    fn new(processed_image: Vec<u8>, error_message: String) -> Self {
-        Self {
-            processed_image,
-            error_message,
-        }
+    fn new(image: Vec<u8>, error: String) -> Self {
+        Self { image, error }
     }
 
     fn default() -> Self {
         Self {
-            processed_image: vec![],
-            error_message: "".to_string(),
+            image: vec![],
+            error: "".to_string(),
         }
     }
 }
 
-/*
-With rbase64::encode
-    2.4s for (4000, 3000) image
-        read time: 2.3989345 s, base64 time: 0.013330333 s
-    0.9s for (2622, 1748) image
-
-With general_purpose::STANDARD.encode
-    2.4s for (4000, 3000) image
-        read time: 2.36815725 s, base64 time: 0.04491725 s
-    0.9s for (2622, 1748) image
-*/
-pub fn image_to_base64(img: &DynamicImage) -> String {
-    let mut image_data: Vec<u8> = Vec::new();
-    img.write_to(&mut Cursor::new(&mut image_data), ImageFormat::WebP)
-        .unwrap(); // change to err handle
-                   // let res_base64 = general_purpose::STANDARD.encode(image_data);
-    let res_base64 = rbase64::encode(&image_data);
-    format!("data:image/png;base64,{}", res_base64)
-}
-
 // Binary search for the maximum camera index that is available
 // l should always be 0
+// ~ 200-250 ms
 fn get_camera_indices() -> Vec<i32> {
-    let start = Instant::now();
     let mut indices = vec![];
     for i in 0..5 {
         let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
@@ -64,27 +46,22 @@ fn get_camera_indices() -> Vec<i32> {
             cap.release().unwrap();
         }
     }
-    println!("get_camera_indices: {:?}", start.elapsed());
     indices
 }
 
 // Get a frame from a video capture object and convert it to a DynamicImage
 fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Option<DynamicImage> {
-    let start = Instant::now();
     let mut img = Mat::default();
     if cap.read(&mut img).unwrap_or(false) {
         match img.to_image_par() {
             Ok(image) => {
-                println!("get_frame_from_cap: {:?}", start.elapsed());
                 return Some(image);
             }
             Err(_) => {
-                println!("get_frame_from_cap: {:?}", start.elapsed());
                 return None;
             }
         }
     } else {
-        println!("get_frame_from_cap: {:?}", start.elapsed());
         return None;
     }
 }
@@ -104,6 +81,7 @@ frontend and updates the list of video capture objects accordingly.
 fn build_camera_update_handler(
     window: &tauri::Window,
     caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>,
+    logger: Arc<Mutex<std::fs::File>>,
 ) -> tauri::EventHandler {
     window.listen("update-camera", move |msg| {
         let start = Instant::now();
@@ -123,6 +101,7 @@ fn build_camera_update_handler(
             }
             None => return,
         }
+
         let mut caps = caps_clone.lock().unwrap();
         match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
             Ok(cap) => {
@@ -132,9 +111,32 @@ fn build_camera_update_handler(
                 caps[win_index as usize] = None;
             }
         }
+        drop(caps);
 
-        println!("Event handler elapsed: {:?}", start.elapsed());
+        let msg = format!("Camera update handler elapsed: {:?}", start.elapsed());
+        {
+            log(msg, &mut logger.lock().unwrap());
+        }
     })
+}
+
+fn convert_to_bytes(img: &DynamicImage, format: ImageFormat) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let mut writer = std::io::BufWriter::new(Cursor::new(&mut buf));
+
+    img.write_to(&mut writer, format).unwrap();
+    drop(writer); // drop to flush the writer and ensure all data is written
+
+    buf
+}
+
+// f is the output file and must be opened in append mode
+pub fn log(msg: String, f: &mut std::fs::File) {
+    if !LOG_OUTPUT {
+        return;
+    }
+    f.write(msg.as_bytes()).unwrap();
+    f.write(b"\n").unwrap();
 }
 
 /*
@@ -146,14 +148,31 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
     Plot elapsed: 185.965083ms
     Base64 elapsed: 1.199653625s
 
-TODO: send each image as a struct {processed_image in bytes, error_message}. emit per window
+notes:
+    - emitting is slow for frequent updates
+
+TODO: increase the batch size and pull more frames per camera
+    - adjust other operations accordingly (consider multi-threading)
+TODO: look into lossy compression
+TODO: migrate to web sockets for faster communication
 TODO: grab images with multiple threads
-TODO: send raw bytes instead of base64 encoding
 TODO: read images on both front and backend and only send the bounding box info
+    - look into keeping count of frames on both front and back end
+    - skip frames if the backend is lagging behind
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
+        // Clear output file
+        let mut options = std::fs::OpenOptions::new();
+        let f = Arc::new(Mutex::new(
+            options
+                .write(true)
+                .truncate(true)
+                .open("../.output")
+                .expect("Failed to open output file"),
+        ));
+
         let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
         // define video capture objects with camera index 0
@@ -165,90 +184,141 @@ pub fn start_streaming(window: tauri::Window) {
                 Err(_) => caps.push(None),
             }
         }
-        println!("Initial camera elapsed: {:?}", start.elapsed());
+        {
+            log(
+                format!("Initial Camera Setup elapsed: {:?}\n", start.elapsed()),
+                &mut f.lock().unwrap(),
+            );
+        }
 
         // wrap the video objects in ArcMutex to allow for shared mutable access
         let caps = Arc::new(Mutex::new(caps));
 
         // create event handler to update video capture objects
-        let _event_handler = build_camera_update_handler(&window, Arc::clone(&caps));
+        let _event_handler =
+            build_camera_update_handler(&window, Arc::clone(&caps), Arc::clone(&f));
 
         // define vector to store images
+        {
+            log(format!("Starting streaming...\n"), &mut f.lock().unwrap());
+        }
         loop {
-            let mut imgs = vec![];
+            let loop_start = Instant::now();
             /*
             Define vector to store the baset64 encoded images.
             If an image is invalid, an error message is pushed
             instead.
             */
             let start = Instant::now();
-            let mut final_img_strs = vec!["".to_string(); NUM_CAMERAS];
+            let mut imgs = vec![DynamicImage::default(); NUM_CAMERAS];
+            let mut err = vec![""; NUM_CAMERAS];
+            let mut frame_times = vec![];
             {
                 // limit the scope of the lock to avoid deadlock with event_handler
                 let mut caps = caps.lock().unwrap();
 
                 // get frames from each camera
                 for (i, cap) in caps[..].iter_mut().enumerate() {
+                    let start = Instant::now();
                     if let Some(c) = cap {
                         if let Some(img) = get_frame_from_cap(c) {
                             // can get frame --> image is valid and push image
-                            imgs.push(img);
+                            imgs[i] = img;
                         } else {
-                            // can't get frame --> image is invalid and push empty image
-                            imgs.push(DynamicImage::default());
-                            final_img_strs[i] =
-                                "Error: Cannot fetch image from camera.".to_string();
+                            err[i] = "Error: Cannot fetch image from camera.";
                         }
                     } else {
-                        // camera does not exist --> image is invalid and push empty image
-                        imgs.push(DynamicImage::default());
-                        final_img_strs[i] = "Error: Camera does not exist.".to_string();
+                        err[i] = "Error: Camera does not exist.";
                     }
+                    frame_times.push(start.elapsed());
                 }
             }
-            let get_frame_elapsed = start.elapsed();
+            {
+                let mut s = format!("[Get frames]: {:?}\n", start.elapsed());
+                // add the individual times
+                for (i, time) in frame_times.iter().enumerate() {
+                    s += &format!("\t- Time to grab frame for window {:?}: {:?}\n", i, time)[..];
+                }
+                s.pop(); // remove last newline for formatting
+                log(s, &mut f.lock().unwrap());
+            }
 
-            if !INFERENCE {
+            if INFERENCE {
+                // run inference
+                let results = model.run(&imgs, &mut f.lock().unwrap()).unwrap();
+
+                // plot images
                 let start = Instant::now();
-                for (i, img) in imgs.iter().enumerate() {
-                    if final_img_strs[i].is_empty() {
-                        final_img_strs[i] = image_to_base64(&img);
-                    }
-                }
-                let base64_elapsed = start.elapsed();
+                let ploted_imgs = model.plot_batch(&results, &imgs[..]);
+                log(
+                    format!("[Plot results]: {:?}", start.elapsed()),
+                    &mut f.lock().unwrap(),
+                );
 
-                println!("Get frame elapsed: {:?}", get_frame_elapsed);
-                println!("Base64 elapsed: {:?}\n", base64_elapsed);
-
-                window.emit("image-sources", final_img_strs).unwrap();
-
-                continue;
+                imgs = ploted_imgs
+                    .iter()
+                    .map(|img| DynamicImage::ImageRgb8(img.clone()))
+                    .collect();
             }
 
-            // run inference
-            let results = model.run(&imgs).unwrap();
+            // convert images to bytes
+            // TODO: use multiple threads
+            let mut emit_times = vec![];
+            let mut to_bytes_time = vec![];
+            let img_fmt = ImageFormat::Bmp;
+            for (i, img) in imgs.iter().enumerate() {
+                let mut payload = Payload::default();
+                let error_msg = err[i];
 
-            let start = Instant::now();
-            // plot images
-            let ploted_imgs = model.plot_batch(&results, &imgs[..], None);
-            let plot_elapsed = start.elapsed();
-
-            let start = Instant::now();
-            // convert images to base64 and
-            for (i, img) in ploted_imgs.iter().enumerate() {
-                if final_img_strs[i].is_empty() {
-                    let img_str = image_to_base64(&DynamicImage::ImageRgb8(img.clone()));
-                    final_img_strs[i] = img_str;
+                let start = Instant::now();
+                if error_msg.len() == 0 {
+                    payload.image = convert_to_bytes(img, img_fmt);
+                } else {
+                    payload.error = error_msg.to_string();
                 }
+                to_bytes_time.push(start.elapsed());
+
+                let tag = &format!("image-payload-{i}")[..];
+                let start = Instant::now();
+                window.emit(tag, payload).unwrap();
+                emit_times.push(start.elapsed());
             }
-            let base64_elapsed = start.elapsed();
 
-            // print times
-            println!("Get frame elapsed: {:?}", get_frame_elapsed);
-            println!("Plot elapsed: {:?}", plot_elapsed);
-            println!("Base64 elapsed: {:?}\n", base64_elapsed);
+            /*
+            Log the times for emitting images, converting images to bytes,
+            and the total time for the loop.
+            */
+            {
+                let total_emit = emit_times.iter().sum::<Duration>();
+                let total_to_bytes = to_bytes_time.iter().sum::<Duration>();
+                let mut emit_time_string = format!("[Emit images]: {:?}\n", total_emit);
+                let mut byte_time_string = format!(
+                    "[Convert images to bytes {:?}]: {:?}\n", img_fmt,
+                    total_to_bytes
+                );
+                let total_time_string = 
+                    format!("- - - - - - - - - -\n[Total loop time]: {:?}\n", loop_start.elapsed());
 
-            window.emit("image-sources", final_img_strs).unwrap();
+                for i in 0..NUM_CAMERAS {
+                    emit_time_string += &format!(
+                        "\t- Time to emit image for window {:?}: {:?}\n",
+                        i, emit_times[i]
+                    )[..];
+                    byte_time_string += &format!(
+                        "\t- Time to convert image to bytes for window {:?}: {:?}\n",
+                        i, to_bytes_time[i]
+                    )[..];
+                }
+
+                // remove last newline for formatting
+                emit_time_string.pop();
+                byte_time_string.pop();
+
+                let mut file = f.lock().unwrap();
+                log(emit_time_string, &mut file);
+                log(byte_time_string, &mut file);
+                log(total_time_string, &mut file);
+            }
         }
     });
 }
@@ -258,9 +328,8 @@ pub fn poll_and_emit_image_sources(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
         loop {
             let indices = get_camera_indices();
-            println!("Available cameras: {:?}", indices);
             window.emit("available-cameras", indices).unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            std::thread::sleep(POLL_DURATION);
         }
     });
 }
