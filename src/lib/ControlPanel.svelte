@@ -13,7 +13,6 @@
         try {
             unlisten = await listen('available-cameras', (event) => {
                 available_cameras = event.payload as number[];
-                console.log(event.payload as number[]);
             });
         } catch (e) {
             available_cameras = [];
