@@ -2,11 +2,11 @@
 
 use std::io::{Read, Write};
 
+pub mod app_backend;
 pub mod args;
 pub mod model;
 pub mod ort_backend;
 pub mod yolo_result;
-pub mod app_backend;
 pub use crate::args::Args;
 pub use crate::model::YOLOv8;
 pub use crate::ort_backend::{Batch, OrtBackend, OrtConfig, OrtEP, YOLOTask};
@@ -45,25 +45,6 @@ pub fn gen_time_string(delimiter: &str) -> String {
     );
     t_now.format(&fmt).to_string()
 }
-
-pub const SKELETON: [(usize, usize); 16] = [
-    (0, 1),
-    (0, 2),
-    (1, 3),
-    (2, 4),
-    (5, 6),
-    (5, 11),
-    (6, 12),
-    (11, 12),
-    (5, 7),
-    (6, 8),
-    (7, 9),
-    (8, 10),
-    (11, 13),
-    (12, 14),
-    (13, 15),
-    (14, 16),
-];
 
 pub fn check_font(font: &str) -> rusttype::Font<'static> {
     // check then load font

@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use crate::{
     check_font, gen_time_string, non_max_suppression, Args, Batch, Bbox, Embedding, OrtBackend,
-    OrtConfig, OrtEP, Point2, YOLOResult, YOLOTask, SKELETON,
+    OrtConfig, OrtEP, Point2, YOLOResult, YOLOTask,
 };
 
 pub struct YOLOv8 {
@@ -207,7 +207,7 @@ impl YOLOv8 {
 
         // plot and save
         if self.plot {
-            self.plot_and_save(&ys, xs, Some(&SKELETON));
+            self.plot_and_save(&ys, xs);
         }
         Ok(ys)
     }
@@ -423,32 +423,11 @@ impl YOLOv8 {
         &self,
         y: &YOLOResult,
         img0: &DynamicImage,
-        skeletons: Option<&[(usize, usize)]>,
     ) -> ImageBuffer<image::Rgb<u8>, Vec<u8>> {
         // check font then load
         let font = check_font("./resources/fonts/Arial.ttf");
 
         let mut img = img0.to_rgb8();
-
-        // draw for classifier
-        if let Some(probs) = y.probs() {
-            for (i, k) in probs.topk(5).iter().enumerate() {
-                let legend = format!("{} {:.2}%", self.names[k.0], k.1);
-                let scale = 32;
-                let legend_size = img.width().max(img.height()) / scale;
-                let x = img.width() / 20;
-                let y = img.height() / 20 + i as u32 * legend_size;
-                imageproc::drawing::draw_text_mut(
-                    &mut img,
-                    image::Rgb([0, 255, 0]),
-                    x as i32,
-                    y as i32,
-                    rusttype::Scale::uniform(legend_size as f32 - 1.),
-                    &font,
-                    &legend,
-                );
-            }
-        }
 
         // draw bboxes & keypoints
         if let Some(bboxes) = y.bboxes() {
@@ -477,70 +456,6 @@ impl YOLOv8 {
             }
         }
 
-        // draw kpts
-        if let Some(keypoints) = y.keypoints() {
-            for kpts in keypoints.iter() {
-                for kpt in kpts.iter() {
-                    // filter
-                    if kpt.confidence() < self.kconf {
-                        continue;
-                    }
-
-                    // draw point
-                    imageproc::drawing::draw_filled_circle_mut(
-                        &mut img,
-                        (kpt.x() as i32, kpt.y() as i32),
-                        2,
-                        image::Rgb([0, 255, 0]),
-                    );
-                }
-
-                // draw skeleton if has
-                if let Some(skeletons) = skeletons {
-                    for &(idx1, idx2) in skeletons.iter() {
-                        let kpt1 = &kpts[idx1];
-                        let kpt2 = &kpts[idx2];
-                        if kpt1.confidence() < self.kconf || kpt2.confidence() < self.kconf {
-                            continue;
-                        }
-                        imageproc::drawing::draw_line_segment_mut(
-                            &mut img,
-                            (kpt1.x(), kpt1.y()),
-                            (kpt2.x(), kpt2.y()),
-                            image::Rgb([233, 14, 57]),
-                        );
-                    }
-                }
-            }
-        }
-
-        // draw mask
-        if let Some(masks) = y.masks() {
-            for (mask, _bbox) in masks.iter().zip(y.bboxes().unwrap().iter()) {
-                let mask_nd: ImageBuffer<image::Luma<_>, Vec<u8>> =
-                    match ImageBuffer::from_vec(img.width(), img.height(), mask.to_vec()) {
-                        Some(image) => image,
-                        None => panic!("can not crate image from ndarray"),
-                    };
-
-                for _x in 0..img.width() {
-                    for _y in 0..img.height() {
-                        let mask_p = imageproc::drawing::Canvas::get_pixel(&mask_nd, _x, _y);
-                        if mask_p.0[0] > 0 {
-                            let mut img_p = imageproc::drawing::Canvas::get_pixel(&img, _x, _y);
-                            // img_p.0[2] = self.color_palette[bbox.id()].2 / 2;
-                            // img_p.0[1] = self.color_palette[bbox.id()].1 / 2;
-                            // img_p.0[0] = self.color_palette[bbox.id()].0 / 2;
-                            img_p.0[2] /= 2;
-                            img_p.0[1] = 255 - (255 - img_p.0[2]) / 2;
-                            img_p.0[0] /= 2;
-                            imageproc::drawing::Canvas::draw_pixel(&mut img, _x, _y, img_p)
-                        }
-                    }
-                }
-            }
-        }
-
         img
     }
 
@@ -548,11 +463,10 @@ impl YOLOv8 {
         &self,
         ys: &[YOLOResult],
         xs0: &[DynamicImage],
-        skeletons: Option<&[(usize, usize)]>,
     ) -> Vec<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
         let mut imgs = Vec::new();
         for (_, (img, result)) in xs0.iter().zip(ys.iter()).enumerate() {
-            imgs.push(self.plot(result, img, skeletons));
+            imgs.push(self.plot(result, img));
         }
         imgs
     }
@@ -561,10 +475,9 @@ impl YOLOv8 {
         &self,
         ys: &[YOLOResult],
         xs0: &[DynamicImage],
-        skeletons: Option<&[(usize, usize)]>,
     ) {
         for (_idb, (img0, y)) in xs0.iter().zip(ys.iter()).enumerate() {
-            let img = self.plot(y, img0, skeletons);
+            let img = self.plot(y, img0);
 
             // mkdir and save
             let mut runs = PathBuf::from("runs");
