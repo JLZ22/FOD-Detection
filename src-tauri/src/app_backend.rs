@@ -151,12 +151,15 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
 notes:
     - emitting is slow for frequent updates
 
+TODO: play with changing resolution and requesting a mjpeg 
+TODO: explore reading on a separate thread
+TODO: pull frames from the cameras in parallel
+TODO: look into lossy compression
 TODO: increase the batch size and pull more frames per camera
     - adjust other operations accordingly (consider multi-threading)
-TODO: look into lossy compression
-TODO: migrate to web sockets for faster communication
-TODO: grab images with multiple threads
-TODO: read images on both front and backend and only send the bounding box info
+TODO: look into migrating to web sockets for faster communication
+
+IDEA: read images on both front and backend and only send the bounding box info
     - look into keeping count of frames on both front and back end
     - skip frames if the backend is lagging behind
 */
