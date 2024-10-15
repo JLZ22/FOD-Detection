@@ -139,6 +139,29 @@ pub fn log(msg: String, f: &mut std::fs::File) {
     f.write(b"\n").unwrap();
 }
 
+fn get_imgs(
+    imgs: &mut Vec<DynamicImage>,
+    err: &mut Vec<&str>,
+    caps: &mut Vec<Option<videoio::VideoCapture>>,
+    frame_times: &mut Vec<Duration>,
+) {
+    // get frames from each camera
+    for (i, cap) in caps[..].iter_mut().enumerate() {
+        let start = Instant::now();
+        if let Some(c) = cap {
+            if let Some(img) = get_frame_from_cap(c) {
+                // can get frame --> image is valid and push image
+                imgs[i] = img;
+            } else {
+                err[i] = "Error: Cannot fetch image from camera.";
+            }
+        } else {
+            err[i] = "Error: Camera does not exist.";
+        }
+        frame_times.push(start.elapsed());
+    }
+}
+
 /*
 Times for 3 video capture objects using Mac FaceTime HD Camera:
     Initial camera elapsed: 1.427801208s
@@ -151,7 +174,7 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
 notes:
     - emitting is slow for frequent updates
 
-TODO: play with changing resolution and requesting a mjpeg 
+TODO: play with changing resolution and requesting a mjpeg
 TODO: explore reading on a separate thread
 TODO: pull frames from the cameras in parallel
 TODO: look into lossy compression
@@ -207,44 +230,24 @@ pub fn start_streaming(window: tauri::Window) {
         }
         loop {
             let loop_start = Instant::now();
-            /*
-            Define vector to store the baset64 encoded images.
-            If an image is invalid, an error message is pushed
-            instead.
-            */
             let start = Instant::now();
             let mut imgs = vec![DynamicImage::default(); NUM_CAMERAS];
             let mut err = vec![""; NUM_CAMERAS];
             let mut frame_times = vec![];
-            {
-                // limit the scope of the lock to avoid deadlock with event_handler
-                let mut caps = caps.lock().unwrap();
 
-                // get frames from each camera
-                for (i, cap) in caps[..].iter_mut().enumerate() {
-                    let start = Instant::now();
-                    if let Some(c) = cap {
-                        if let Some(img) = get_frame_from_cap(c) {
-                            // can get frame --> image is valid and push image
-                            imgs[i] = img;
-                        } else {
-                            err[i] = "Error: Cannot fetch image from camera.";
-                        }
-                    } else {
-                        err[i] = "Error: Camera does not exist.";
-                    }
-                    frame_times.push(start.elapsed());
-                }
+            get_imgs(&mut imgs, &mut err, &mut caps.lock().unwrap(), &mut frame_times);
+
+            // log the time to get frames
+            let mut s = format!("[Get frames]: {:?}\n", start.elapsed());
+            // add the individual times
+            for (i, time) in frame_times.iter().enumerate() {
+                s += &format!("\t- Time to grab frame for window {:?}: {:?}\n", i, time)[..];
             }
-            {
-                let mut s = format!("[Get frames]: {:?}\n", start.elapsed());
-                // add the individual times
-                for (i, time) in frame_times.iter().enumerate() {
-                    s += &format!("\t- Time to grab frame for window {:?}: {:?}\n", i, time)[..];
-                }
-                s.pop(); // remove last newline for formatting
-                log(s, &mut f.lock().unwrap());
-            }
+            s.pop(); // remove last newline for formatting
+            // unlock the file and log the time
+            let mut file = f.lock().unwrap();
+            log(s, &mut file);
+            drop(file);
 
             if INFERENCE {
                 // run inference
@@ -296,11 +299,13 @@ pub fn start_streaming(window: tauri::Window) {
                 let total_to_bytes = to_bytes_time.iter().sum::<Duration>();
                 let mut emit_time_string = format!("[Emit images]: {:?}\n", total_emit);
                 let mut byte_time_string = format!(
-                    "[Convert images to bytes {:?}]: {:?}\n", img_fmt,
-                    total_to_bytes
+                    "[Convert images to bytes {:?}]: {:?}\n",
+                    img_fmt, total_to_bytes
                 );
-                let total_time_string = 
-                    format!("- - - - - - - - - -\n[Total loop time]: {:?}\n", loop_start.elapsed());
+                let total_time_string = format!(
+                    "- - - - - - - - - -\n[Total loop time]: {:?}\n",
+                    loop_start.elapsed()
+                );
 
                 for i in 0..NUM_CAMERAS {
                     emit_time_string += &format!(
