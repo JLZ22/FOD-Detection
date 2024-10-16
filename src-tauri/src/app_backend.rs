@@ -1,5 +1,6 @@
 use crate::args::Args;
 use crate::model::YOLOv8;
+use anyhow::{bail, Error};
 use image::{DynamicImage, ImageFormat};
 use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
@@ -50,19 +51,19 @@ fn get_camera_indices() -> Vec<i32> {
 }
 
 // Get a frame from a video capture object and convert it to a DynamicImage
-fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Option<DynamicImage> {
+fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, Error> {
     let mut img = Mat::default();
     if cap.read(&mut img).unwrap_or(false) {
         match img.to_image_par() {
             Ok(image) => {
-                return Some(image);
+                Ok(image)
             }
             Err(_) => {
-                return None;
+                bail!("Error: Cannot convert Mat to DynamicImage.");
             }
         }
     } else {
-        return None;
+        bail!("Error: Cannot read frame from camera.");
     }
 }
 
@@ -87,6 +88,8 @@ fn build_camera_update_handler(
         let start = Instant::now();
         let win_index;
         let cam_index;
+
+        // parse the message for the window index and camera index
         match msg.payload() {
             Some(msg) => {
                 let msg = msg
@@ -102,6 +105,7 @@ fn build_camera_update_handler(
             None => return,
         }
 
+        // update the video capture object at the specified index
         let mut caps = caps_clone.lock().unwrap();
         match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
             Ok(cap) => {
@@ -141,7 +145,7 @@ pub fn log(msg: String, f: &mut std::fs::File) {
 
 fn get_imgs(
     imgs: &mut Vec<DynamicImage>,
-    err: &mut Vec<&str>,
+    err: &mut Vec<String>,
     caps: &mut Vec<Option<videoio::VideoCapture>>,
     frame_times: &mut Vec<Duration>,
 ) {
@@ -149,17 +153,31 @@ fn get_imgs(
     for (i, cap) in caps[..].iter_mut().enumerate() {
         let start = Instant::now();
         if let Some(c) = cap {
-            if let Some(img) = get_frame_from_cap(c) {
-                // can get frame --> image is valid and push image
-                imgs[i] = img;
-            } else {
-                err[i] = "Error: Cannot fetch image from camera.";
+            match get_frame_from_cap(c) {
+                Ok(img) => {
+                    // can get frame --> image is valid and push image
+                    imgs[i] = img;
+                },
+                Err(e) => {
+                    err[i] = e.to_string();
+                }
             }
         } else {
-            err[i] = "Error: Camera does not exist.";
+            err[i] = "Error: Camera does not exist.".to_string();
         }
         frame_times.push(start.elapsed());
     }
+}
+
+#[tauri::command]
+pub fn poll_and_emit_image_sources(window: tauri::Window) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let indices = get_camera_indices();
+            window.emit("available-cameras", indices).unwrap();
+            std::thread::sleep(POLL_DURATION);
+        }
+    });
 }
 
 /*
@@ -232,7 +250,7 @@ pub fn start_streaming(window: tauri::Window) {
             let loop_start = Instant::now();
             let start = Instant::now();
             let mut imgs = vec![DynamicImage::default(); NUM_CAMERAS];
-            let mut err = vec![""; NUM_CAMERAS];
+            let mut err = vec![String::default(); NUM_CAMERAS];
             let mut frame_times = vec![];
 
             get_imgs(&mut imgs, &mut err, &mut caps.lock().unwrap(), &mut frame_times);
@@ -274,13 +292,13 @@ pub fn start_streaming(window: tauri::Window) {
             let img_fmt = ImageFormat::Bmp;
             for (i, img) in imgs.iter().enumerate() {
                 let mut payload = Payload::default();
-                let error_msg = err[i];
+                let error_msg = err[i].clone();
 
                 let start = Instant::now();
                 if error_msg.len() == 0 {
                     payload.image = convert_to_bytes(img, img_fmt);
                 } else {
-                    payload.error = error_msg.to_string();
+                    payload.error = error_msg;
                 }
                 to_bytes_time.push(start.elapsed());
 
@@ -327,17 +345,6 @@ pub fn start_streaming(window: tauri::Window) {
                 log(byte_time_string, &mut file);
                 log(total_time_string, &mut file);
             }
-        }
-    });
-}
-
-#[tauri::command]
-pub fn poll_and_emit_image_sources(window: tauri::Window) {
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let indices = get_camera_indices();
-            window.emit("available-cameras", indices).unwrap();
-            std::thread::sleep(POLL_DURATION);
         }
     });
 }
