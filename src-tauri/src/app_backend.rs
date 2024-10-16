@@ -2,6 +2,7 @@ use crate::args::Args;
 use crate::model::YOLOv8;
 use anyhow::{bail, Error};
 use image::{DynamicImage, ImageFormat};
+use log::info;
 use mat2image::ToImage;
 use opencv::{prelude::*, videoio};
 use serde::Serialize;
@@ -11,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const NUM_CAMERAS: usize = 3;
-const POLL_DURATION: Duration = Duration::from_secs(2);
+const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
 const LOG_OUTPUT: bool = true;
 
@@ -55,9 +56,7 @@ fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, E
     let mut img = Mat::default();
     if cap.read(&mut img).unwrap_or(false) {
         match img.to_image_par() {
-            Ok(image) => {
-                Ok(image)
-            }
+            Ok(image) => Ok(image),
             Err(_) => {
                 bail!("Error: Cannot convert Mat to DynamicImage.");
             }
@@ -82,7 +81,6 @@ frontend and updates the list of video capture objects accordingly.
 fn build_camera_update_handler(
     window: &tauri::Window,
     caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>,
-    logger: Arc<Mutex<std::fs::File>>,
 ) -> tauri::EventHandler {
     window.listen("update-camera", move |msg| {
         let start = Instant::now();
@@ -117,10 +115,10 @@ fn build_camera_update_handler(
         }
         drop(caps);
 
-        let msg = format!("Camera update handler elapsed: {:?}", start.elapsed());
-        {
-            log(msg, &mut logger.lock().unwrap());
-        }
+        info!(
+            "{}",
+            format!("Camera update handler elapsed: {:?}", start.elapsed())
+        );
     })
 }
 
@@ -157,7 +155,7 @@ fn get_imgs(
                 Ok(img) => {
                     // can get frame --> image is valid and push image
                     imgs[i] = img;
-                },
+                }
                 Err(e) => {
                     err[i] = e.to_string();
                 }
@@ -207,15 +205,7 @@ IDEA: read images on both front and backend and only send the bounding box info
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
-        // Clear output file
-        let mut options = std::fs::OpenOptions::new();
-        let f = Arc::new(Mutex::new(
-            options
-                .write(true)
-                .truncate(true)
-                .open("../.output")
-                .expect("Failed to open output file"),
-        ));
+        info!("Starting streaming...");
 
         let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
@@ -228,56 +218,50 @@ pub fn start_streaming(window: tauri::Window) {
                 Err(_) => caps.push(None),
             }
         }
-        {
-            log(
-                format!("Initial Camera Setup elapsed: {:?}\n", start.elapsed()),
-                &mut f.lock().unwrap(),
-            );
-        }
+        info!(
+            "Initial camera setup complete! Duration: {:?}",
+            start.elapsed()
+        );
 
         // wrap the video objects in ArcMutex to allow for shared mutable access
         let caps = Arc::new(Mutex::new(caps));
 
         // create event handler to update video capture objects
-        let _event_handler =
-            build_camera_update_handler(&window, Arc::clone(&caps), Arc::clone(&f));
+        let _event_handler = build_camera_update_handler(&window, Arc::clone(&caps));
 
-        // define vector to store images
-        {
-            log(format!("Starting streaming...\n"), &mut f.lock().unwrap());
-        }
+        info!("Starting multi-camera capture and inference loop...\n");
         loop {
+            info!("Starting next Iteration...");
             let loop_start = Instant::now();
             let start = Instant::now();
             let mut imgs = vec![DynamicImage::default(); NUM_CAMERAS];
             let mut err = vec![String::default(); NUM_CAMERAS];
             let mut frame_times = vec![];
 
-            get_imgs(&mut imgs, &mut err, &mut caps.lock().unwrap(), &mut frame_times);
+            get_imgs(
+                &mut imgs,
+                &mut err,
+                &mut caps.lock().unwrap(),
+                &mut frame_times,
+            );
 
             // log the time to get frames
-            let mut s = format!("[Get frames]: {:?}\n", start.elapsed());
+            let mut s = format!("Get frames: {:?}\n", start.elapsed());
             // add the individual times
             for (i, time) in frame_times.iter().enumerate() {
                 s += &format!("\t- Time to grab frame for window {:?}: {:?}\n", i, time)[..];
             }
-            s.pop(); // remove last newline for formatting
-            // unlock the file and log the time
-            let mut file = f.lock().unwrap();
-            log(s, &mut file);
-            drop(file);
+            s.pop();
+            info!("{}", s);
 
             if INFERENCE {
                 // run inference
-                let results = model.run(&imgs, &mut f.lock().unwrap()).unwrap();
+                let results = model.run(&imgs).unwrap();
 
                 // plot images
                 let start = Instant::now();
                 let ploted_imgs = model.plot_batch(&results, &imgs[..]);
-                log(
-                    format!("[Plot results]: {:?}", start.elapsed()),
-                    &mut f.lock().unwrap(),
-                );
+                info!("{}", format!("Plot images: {:?}", start.elapsed()));
 
                 imgs = ploted_imgs
                     .iter()
@@ -312,39 +296,36 @@ pub fn start_streaming(window: tauri::Window) {
             Log the times for emitting images, converting images to bytes,
             and the total time for the loop.
             */
-            {
-                let total_emit = emit_times.iter().sum::<Duration>();
-                let total_to_bytes = to_bytes_time.iter().sum::<Duration>();
-                let mut emit_time_string = format!("[Emit images]: {:?}\n", total_emit);
-                let mut byte_time_string = format!(
-                    "[Convert images to bytes {:?}]: {:?}\n",
-                    img_fmt, total_to_bytes
-                );
-                let total_time_string = format!(
-                    "- - - - - - - - - -\n[Total loop time]: {:?}\n",
-                    loop_start.elapsed()
-                );
+            let total_emit = emit_times.iter().sum::<Duration>();
+            let total_to_bytes = to_bytes_time.iter().sum::<Duration>();
+            let mut emit_time_string = format!("Emit images: {:?}\n", total_emit);
+            let mut byte_time_string = format!(
+                "[Convert images to bytes {:?}]: {:?}\n",
+                img_fmt, total_to_bytes
+            );
+            let total_time_string = format!(
+                "Total loop time: {:?}\n",
+                loop_start.elapsed()
+            );
 
-                for i in 0..NUM_CAMERAS {
-                    emit_time_string += &format!(
-                        "\t- Time to emit image for window {:?}: {:?}\n",
-                        i, emit_times[i]
-                    )[..];
-                    byte_time_string += &format!(
-                        "\t- Time to convert image to bytes for window {:?}: {:?}\n",
-                        i, to_bytes_time[i]
-                    )[..];
-                }
-
-                // remove last newline for formatting
-                emit_time_string.pop();
-                byte_time_string.pop();
-
-                let mut file = f.lock().unwrap();
-                log(emit_time_string, &mut file);
-                log(byte_time_string, &mut file);
-                log(total_time_string, &mut file);
+            for i in 0..NUM_CAMERAS {
+                emit_time_string += &format!(
+                    "\t- Time to emit image for window {:?}: {:?}\n",
+                    i, emit_times[i]
+                )[..];
+                byte_time_string += &format!(
+                    "\t- Time to convert image to bytes for window {:?}: {:?}\n",
+                    i, to_bytes_time[i]
+                )[..];
             }
+
+            // remove last newline for formatting
+            emit_time_string.pop();
+            byte_time_string.pop();
+
+            info!("{}", emit_time_string);
+            info!("{}", byte_time_string);
+            info!("{}", total_time_string);
         }
     });
 }

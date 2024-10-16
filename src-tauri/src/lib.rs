@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 
+use simplelog::{CombinedLogger, Config, LevelFilter, WriteLogger};
 use std::io::{Read, Write};
 
 pub mod app_backend;
@@ -110,10 +111,17 @@ pub enum LoadError {
 }
 
 pub fn run() {
+    let log_file = ".output";
+    CombinedLogger::init(vec![WriteLogger::new(
+        LevelFilter::Info,
+        Config::default(),
+        std::fs::File::create(log_file).unwrap(),
+    )])
+    .unwrap();
+
     tauri::Builder::default()
         .setup(|_app| {
-            // grab cameras and start inference
-            // start_streaming();
+            log::info!("Tauri application started");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -1,8 +1,8 @@
 #![allow(clippy::type_complexity)]
 
-use crate::app_backend::log;
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView, ImageBuffer};
+use log::info;
 use ndarray::{s, Array, Axis, IxDyn};
 use rand::{thread_rng, Rng};
 use std::path::PathBuf;
@@ -169,17 +169,13 @@ impl YOLOv8 {
         Ok(ys)
     }
 
-    pub fn run(
-        &mut self,
-        xs: &Vec<DynamicImage>,
-        f: &mut std::fs::File,
-    ) -> Result<Vec<YOLOResult>> {
+    pub fn run(&mut self, xs: &Vec<DynamicImage>) -> Result<Vec<YOLOResult>> {
         // pre-process
         let start = Instant::now();
         let t_pre = std::time::Instant::now();
         let xs_ = self.preprocess(xs)?;
         if self.profile {
-            log(format!("[Model Preprocess]: {:?}", t_pre.elapsed()), f);
+            info!("Preprocess duration: {:?}", t_pre.elapsed());
         }
         let pre_time = start.elapsed();
 
@@ -188,7 +184,7 @@ impl YOLOv8 {
         let t_run = std::time::Instant::now();
         let ys = self.engine.run(xs_, self.profile)?;
         if self.profile {
-            log(format!("[Model Inference]: {:?}", t_run.elapsed()), f);
+            info!("Run duration: {:?}", t_run.elapsed());
         }
         let run_time = start.elapsed();
 
@@ -197,7 +193,7 @@ impl YOLOv8 {
         let t_post = std::time::Instant::now();
         let ys = self.postprocess(ys, xs)?;
         if self.profile {
-            log(format!("[Model Postprocess]: {:?}", t_post.elapsed()), f);
+            info!("Postprocess duration: {:?}", t_post.elapsed());
         }
         let post_time = start.elapsed();
 
@@ -209,9 +205,7 @@ impl YOLOv8 {
             run_time,
             post_time
         );
-        {
-            log(total, f);
-        }
+        info!("{}", total);
 
         // plot and save
         if self.plot {
