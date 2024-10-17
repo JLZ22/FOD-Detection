@@ -199,7 +199,7 @@ impl YOLOv8 {
 
         // log inference times
         let total = format!(
-            "[Model inference]: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
+            "Model inference duration: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
             pre_time + run_time + post_time,
             pre_time,
             run_time,
@@ -461,15 +461,18 @@ impl YOLOv8 {
         img
     }
 
+    // TODO: do this in parallel
     pub fn plot_batch(
         &self,
         ys: &[YOLOResult],
         xs0: &[DynamicImage],
     ) -> Vec<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
+        let start = Instant::now();
         let mut imgs = Vec::new();
         for (_, (img, result)) in xs0.iter().zip(ys.iter()).enumerate() {
             imgs.push(self.plot(result, img));
         }
+        info!("plot_batch duration: {:?}", start.elapsed());
         imgs
     }
 

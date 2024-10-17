@@ -15,6 +15,7 @@ const NUM_CAMERAS: usize = 3;
 const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
 const LOG_OUTPUT: bool = true;
+const IMAGE_FORMAT: ImageFormat = ImageFormat::Bmp;
 
 #[derive(Debug, Clone, Serialize)]
 struct Payload {
@@ -167,6 +168,59 @@ fn get_imgs(
     }
 }
 
+/*
+Create payloads from images and errors in parallel. This 
+consumes the images and errors and returns a vector of payloads.
+*/
+async fn construct_payloads(imgs: Vec<DynamicImage>, 
+    img_fmt: ImageFormat, err: Vec<String>) -> Vec<Payload> {
+    let mut join_handles = vec![];
+
+    for (img, err_msg) in imgs.into_iter().zip(err.into_iter()) {
+        // spawn a task to convert the image to bytes
+        join_handles.push(tauri::async_runtime::spawn(async move {
+            let mut payload = Payload::default();
+            if err_msg.is_empty() {
+                payload.image = convert_to_bytes(&img, img_fmt);
+            } else {
+                payload.error = err_msg;
+            }
+
+            payload
+        }));
+    }
+
+
+    // wait for tasks to finish and return the collected payloads
+    futures::future::join_all(join_handles)
+        .await
+        .into_iter()
+        .map(|result| {
+            result.unwrap_or_else(|_| {
+                Payload::new(
+                    Vec::new(),
+                    "Error: Payload construction failure.".to_string(),
+                )
+            })
+        })
+        .collect()
+}
+
+// emit payloads to the frontend in parallel
+async fn emit_payloads_parallel(window: &tauri::Window, payloads: Vec<Payload>) {
+    let mut join_handles = vec![];
+    for (i, payload) in payloads.into_iter().enumerate() {
+        let win_clone = window.clone();
+        join_handles.push(tauri::async_runtime::spawn(async move {
+            let tag = &format!("image-payload-{}", i)[..];
+            win_clone
+                .emit(tag, payload)
+                .expect("Failed to emit image payload.");
+        }));
+    }
+    futures::future::join_all(join_handles).await;
+}
+
 #[tauri::command]
 pub fn poll_and_emit_image_sources(window: tauri::Window) {
     tauri::async_runtime::spawn(async move {
@@ -259,9 +313,7 @@ pub fn start_streaming(window: tauri::Window) {
                 let results = model.run(&imgs).unwrap();
 
                 // plot images
-                let start = Instant::now();
-                let ploted_imgs = model.plot_batch(&results, &imgs[..]);
-                info!("{}", format!("Plot images: {:?}", start.elapsed()));
+                let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel
 
                 imgs = ploted_imgs
                     .iter()
@@ -269,63 +321,20 @@ pub fn start_streaming(window: tauri::Window) {
                     .collect();
             }
 
-            // convert images to bytes
-            // TODO: use multiple threads
-            let mut emit_times = vec![];
-            let mut to_bytes_time = vec![];
-            let img_fmt = ImageFormat::Bmp;
-            for (i, img) in imgs.iter().enumerate() {
-                let mut payload = Payload::default();
-                let error_msg = err[i].clone();
+            // convert images to payloads
+            let start = Instant::now();
+            let payloads = construct_payloads(imgs, IMAGE_FORMAT, err).await;
+            let byte_conversion_time = start.elapsed();
 
-                let start = Instant::now();
-                if error_msg.len() == 0 {
-                    payload.image = convert_to_bytes(img, img_fmt);
-                } else {
-                    payload.error = error_msg;
-                }
-                to_bytes_time.push(start.elapsed());
+            // emit payloads
+            let start = Instant::now();
+            emit_payloads_parallel(&window, payloads).await;
+            let emit_time = start.elapsed();
 
-                let tag = &format!("image-payload-{i}")[..];
-                let start = Instant::now();
-                window.emit(tag, payload).unwrap();
-                emit_times.push(start.elapsed());
-            }
-
-            /*
-            Log the times for emitting images, converting images to bytes,
-            and the total time for the loop.
-            */
-            let total_emit = emit_times.iter().sum::<Duration>();
-            let total_to_bytes = to_bytes_time.iter().sum::<Duration>();
-            let mut emit_time_string = format!("Emit images: {:?}\n", total_emit);
-            let mut byte_time_string = format!(
-                "[Convert images to bytes {:?}]: {:?}\n",
-                img_fmt, total_to_bytes
-            );
-            let total_time_string = format!(
-                "Total loop time: {:?}\n",
-                loop_start.elapsed()
-            );
-
-            for i in 0..NUM_CAMERAS {
-                emit_time_string += &format!(
-                    "\t- Time to emit image for window {:?}: {:?}\n",
-                    i, emit_times[i]
-                )[..];
-                byte_time_string += &format!(
-                    "\t- Time to convert image to bytes for window {:?}: {:?}\n",
-                    i, to_bytes_time[i]
-                )[..];
-            }
-
-            // remove last newline for formatting
-            emit_time_string.pop();
-            byte_time_string.pop();
-
-            info!("{}", emit_time_string);
-            info!("{}", byte_time_string);
-            info!("{}", total_time_string);
+            // log the times
+            info!("{}", format!("Byte conversion time: {:?}", byte_conversion_time));
+            info!("{}", format!("Emit time: {:?}", emit_time));
+            info!("{}", format!("Total loop time: {:?}\n", loop_start.elapsed()));
         }
     });
 }
