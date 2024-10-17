@@ -1,12 +1,10 @@
 use crate::args::Args;
 use crate::model::YOLOv8;
-use anyhow::{bail, Error};
+use crate::multi_capture;
 use image::{DynamicImage, ImageFormat};
 use log::info;
-use mat2image::ToImage;
-use opencv::{prelude::*, videoio};
+use opencv::videoio;
 use serde::Serialize;
-use std::io::{Cursor, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,7 +12,6 @@ use std::time::{Duration, Instant};
 const NUM_CAMERAS: usize = 3;
 const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
-const LOG_OUTPUT: bool = true;
 const IMAGE_FORMAT: ImageFormat = ImageFormat::Bmp;
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,137 +36,6 @@ impl Payload {
     }
 }
 
-// Binary search for the maximum camera index that is available
-// l should always be 0
-// ~ 200-250 ms
-fn get_camera_indices() -> Vec<i32> {
-    let mut indices = vec![];
-    for i in 0..5 {
-        let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
-        if cap.is_opened().unwrap() {
-            indices.push(i);
-            cap.release().unwrap();
-        }
-    }
-    indices
-}
-
-// Get a frame from a video capture object and convert it to a DynamicImage
-fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, Error> {
-    let mut img = Mat::default();
-    if cap.read(&mut img).unwrap_or(false) {
-        match img.to_image_par() {
-            Ok(image) => Ok(image),
-            Err(_) => {
-                bail!("Error: Cannot convert Mat to DynamicImage.");
-            }
-        }
-    } else {
-        bail!("Error: Cannot read frame from camera.");
-    }
-}
-
-#[tauri::command]
-pub fn update_camera(window: tauri::Window, win_index: i32, cam_index: i32) {
-    window.trigger(
-        "update-camera",
-        Some(format!("{win_index} {cam_index}").to_string()),
-    );
-}
-
-/*
-Create an event handler that listens for update-camera messages from the
-frontend and updates the list of video capture objects accordingly.
-*/
-fn build_camera_update_handler(
-    window: &tauri::Window,
-    caps_clone: Arc<Mutex<Vec<Option<videoio::VideoCapture>>>>,
-) -> tauri::EventHandler {
-    window.listen("update-camera", move |msg| {
-        let start = Instant::now();
-        let win_index;
-        let cam_index;
-
-        // parse the message for the window index and camera index
-        match msg.payload() {
-            Some(msg) => {
-                let msg = msg
-                    .split_whitespace()
-                    .map(|s| s.parse().unwrap_or(-1))
-                    .collect::<Vec<i32>>();
-                win_index = msg[0];
-                if win_index < 0 || win_index >= NUM_CAMERAS as i32 {
-                    return;
-                }
-                cam_index = msg[1];
-            }
-            None => return,
-        }
-
-        // update the video capture object at the specified index
-        let mut caps = caps_clone.lock().unwrap();
-        match videoio::VideoCapture::new(cam_index, videoio::CAP_ANY) {
-            Ok(cap) => {
-                caps[win_index as usize] = Some(cap);
-            }
-            Err(_) => {
-                caps[win_index as usize] = None;
-            }
-        }
-        drop(caps);
-
-        info!(
-            "{}",
-            format!("Camera update handler elapsed: {:?}", start.elapsed())
-        );
-    })
-}
-
-fn convert_to_bytes(img: &DynamicImage, format: ImageFormat) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let mut writer = std::io::BufWriter::new(Cursor::new(&mut buf));
-
-    img.write_to(&mut writer, format).unwrap();
-    drop(writer); // drop to flush the writer and ensure all data is written
-
-    buf
-}
-
-// f is the output file and must be opened in append mode
-pub fn log(msg: String, f: &mut std::fs::File) {
-    if !LOG_OUTPUT {
-        return;
-    }
-    f.write(msg.as_bytes()).unwrap();
-    f.write(b"\n").unwrap();
-}
-
-fn get_imgs(
-    imgs: &mut Vec<DynamicImage>,
-    err: &mut Vec<String>,
-    caps: &mut Vec<Option<videoio::VideoCapture>>,
-    frame_times: &mut Vec<Duration>,
-) {
-    // get frames from each camera
-    for (i, cap) in caps[..].iter_mut().enumerate() {
-        let start = Instant::now();
-        if let Some(c) = cap {
-            match get_frame_from_cap(c) {
-                Ok(img) => {
-                    // can get frame --> image is valid and push image
-                    imgs[i] = img;
-                }
-                Err(e) => {
-                    err[i] = e.to_string();
-                }
-            }
-        } else {
-            err[i] = "Error: Camera does not exist.".to_string();
-        }
-        frame_times.push(start.elapsed());
-    }
-}
-
 /*
 Create payloads from images and errors in parallel. This 
 consumes the images and errors and returns a vector of payloads.
@@ -183,7 +49,7 @@ async fn construct_payloads(imgs: Vec<DynamicImage>,
         join_handles.push(tauri::async_runtime::spawn(async move {
             let mut payload = Payload::default();
             if err_msg.is_empty() {
-                payload.image = convert_to_bytes(&img, img_fmt);
+                payload.image = multi_capture::convert_to_bytes(&img, img_fmt);
             } else {
                 payload.error = err_msg;
             }
@@ -225,9 +91,9 @@ async fn emit_payloads_parallel(window: &tauri::Window, payloads: Vec<Payload>) 
 
 #[tauri::command]
 pub fn poll_and_emit_image_sources(window: tauri::Window) {
-    tauri::async_runtime::spawn(async move {
+    std::thread::spawn(move || {
         loop {
-            let indices = get_camera_indices();
+            let indices = multi_capture::get_camera_indices();
             window.emit("available-cameras", indices).unwrap();
             std::thread::sleep(POLL_DURATION);
         }
@@ -294,7 +160,7 @@ pub fn start_streaming(window: tauri::Window) {
         let caps = Arc::new(Mutex::new(caps));
 
         // create event handler to update video capture objects
-        let _event_handler = build_camera_update_handler(&window, Arc::clone(&caps));
+        let _event_handler = multi_capture::build_camera_update_handler(&window, Arc::clone(&caps));
 
         info!("Starting multi-camera capture and inference loop...\n");
         loop {
@@ -305,7 +171,7 @@ pub fn start_streaming(window: tauri::Window) {
             let mut err = vec![String::default(); NUM_CAMERAS];
             let mut frame_times = vec![];
 
-            get_imgs(
+            multi_capture::get_imgs(
                 &mut imgs,
                 &mut err,
                 &mut caps.lock().unwrap(),

@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 pub mod app_backend;
 pub mod args;
 pub mod model;
+pub mod  multi_capture;
 pub mod ort_backend;
 pub mod yolo_result;
 pub use crate::args::Args;
@@ -127,7 +128,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_backend::poll_and_emit_image_sources,
             app_backend::start_streaming,
-            app_backend::update_camera,
+            multi_capture::update_camera,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
