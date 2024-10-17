@@ -23,17 +23,19 @@ struct Payload {
     error: String,
 }
 
-#[allow(dead_code)]
-impl Payload {
-    fn new(image: Vec<u8>, error: String) -> Self {
-        Self { image, error }
-    }
-
+impl Default for Payload {
     fn default() -> Self {
         Self {
             image: vec![],
             error: "".to_string(),
         }
+    }
+}
+
+#[allow(dead_code)]
+impl Payload {
+    fn new(image: Vec<u8>, error: String) -> Self {
+        Self { image, error }
     }
 }
 
@@ -234,15 +236,26 @@ pub fn poll_and_emit_image_sources(window: tauri::Window) {
 
 /*
 Times for 3 video capture objects using Mac FaceTime HD Camera:
-    Initial camera elapsed: 1.427801208s
-    Event handler elapsed: 73.946833ms
-    Get frame elapsed: 103.224708ms
-    Inference elapsed: 2.240577042s
-    Plot elapsed: 185.965083ms
-    Base64 elapsed: 1.199653625s
+02:45:52 [INFO] Get frames: 119.303125ms
+    - Time to grab frame for window 0: 40.962166ms
+    - Time to grab frame for window 1: 34.160209ms
+    - Time to grab frame for window 2: 44.108042ms
+02:45:55 [INFO] Model inference duration: 2.223577625s (Pre: 2.087768208s, Run: 85.704375ms, Post: 50.105042ms)
+02:45:55 [INFO] plot_batch duration: 182.401583ms
+02:45:55 [INFO] Byte conversion time: 62.006292ms
+02:45:55 [INFO] Emit time: 516.389292ms
+02:45:55 [INFO] Total loop time: 3.106455875s
+
+^ down from 4.5s
 
 notes:
     - emitting is slow for frequent updates
+
+TODO: change payload to an enum 
+TODO: create a camera struct that stores video cap object and win index 
+TODO: create threads to infinitely read from cameras and send through a channel (acts like a buffer)
+    - read from channels in the main loop
+TODO: main loop performs batched inference and sends to three threads that build payload and emit
 
 TODO: play with changing resolution and requesting a mjpeg
 TODO: explore reading on a separate thread

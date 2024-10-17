@@ -152,6 +152,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "thiserror",
+ "tokio",
  "ureq",
  "yaml-rust",
 ]
