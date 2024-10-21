@@ -1,6 +1,6 @@
 use crate::args::Args;
 use crate::model::YOLOv8;
-use crate::multi_capture;
+use crate::multi_capture::{self, setup_captures};
 use image::{DynamicImage, ImageFormat};
 use log::info;
 use opencv::videoio;
@@ -37,11 +37,14 @@ impl Payload {
 }
 
 /*
-Create payloads from images and errors in parallel. This 
+Create payloads from images and errors in parallel. This
 consumes the images and errors and returns a vector of payloads.
 */
-async fn construct_payloads(imgs: Vec<DynamicImage>, 
-    img_fmt: ImageFormat, err: Vec<String>) -> Vec<Payload> {
+async fn construct_payloads(
+    imgs: Vec<DynamicImage>,
+    img_fmt: ImageFormat,
+    err: Vec<String>,
+) -> Vec<Payload> {
     let mut join_handles = vec![];
 
     for (img, err_msg) in imgs.into_iter().zip(err.into_iter()) {
@@ -57,7 +60,6 @@ async fn construct_payloads(imgs: Vec<DynamicImage>,
             payload
         }));
     }
-
 
     // wait for tasks to finish and return the collected payloads
     futures::future::join_all(join_handles)
@@ -91,12 +93,10 @@ async fn emit_payloads_parallel(window: &tauri::Window, payloads: Vec<Payload>) 
 
 #[tauri::command]
 pub fn poll_and_emit_image_sources(window: tauri::Window) {
-    std::thread::spawn(move || {
-        loop {
-            let indices = multi_capture::get_camera_indices();
-            window.emit("available-cameras", indices).unwrap();
-            std::thread::sleep(POLL_DURATION);
-        }
+    std::thread::spawn(move || loop {
+        let indices = multi_capture::get_camera_indices();
+        window.emit("available-cameras", indices).unwrap();
+        std::thread::sleep(POLL_DURATION);
     });
 }
 
@@ -117,8 +117,8 @@ Times for 3 video capture objects using Mac FaceTime HD Camera:
 notes:
     - emitting is slow for frequent updates
 
-TODO: change payload to an enum 
-TODO: create a camera struct that stores video cap object and win index 
+TODO: change payload to an enum
+TODO: create a camera struct that stores video cap object and win index
 TODO: create threads to infinitely read from cameras and send through a channel (acts like a buffer)
     - read from channels in the main loop
 TODO: main loop performs batched inference and sends to three threads that build payload and emit
@@ -161,31 +161,23 @@ pub fn start_streaming(window: tauri::Window) {
 
         // create event handler to update video capture objects
         let _event_handler = multi_capture::build_camera_update_handler(&window, Arc::clone(&caps));
-
+        let recievers = setup_captures(window.clone());
         info!("Starting multi-camera capture and inference loop...\n");
         loop {
             info!("Starting next Iteration...");
             let loop_start = Instant::now();
-            let start = Instant::now();
-            let mut imgs = vec![DynamicImage::default(); NUM_CAMERAS];
+            let mut imgs = vec![];
             let mut err = vec![String::default(); NUM_CAMERAS];
-            let mut frame_times = vec![];
 
-            multi_capture::get_imgs(
-                &mut imgs,
-                &mut err,
-                &mut caps.lock().unwrap(),
-                &mut frame_times,
-            );
-
-            // log the time to get frames
-            let mut s = format!("Get frames: {:?}\n", start.elapsed());
-            // add the individual times
-            for (i, time) in frame_times.iter().enumerate() {
-                s += &format!("\t- Time to grab frame for window {:?}: {:?}\n", i, time)[..];
+            // get frames from each camera
+            let start = Instant::now();
+            for rx in recievers.iter() {
+                imgs.push(
+                    rx.recv()
+                        .expect("Failed to recieve image from capture thread."),
+                );
             }
-            s.pop();
-            info!("{}", s);
+            info!("Get frames: {:?}", start.elapsed());
 
             if INFERENCE {
                 // run inference
@@ -211,9 +203,15 @@ pub fn start_streaming(window: tauri::Window) {
             let emit_time = start.elapsed();
 
             // log the times
-            info!("{}", format!("Byte conversion time: {:?}", byte_conversion_time));
+            info!(
+                "{}",
+                format!("Byte conversion time: {:?}", byte_conversion_time)
+            );
             info!("{}", format!("Emit time: {:?}", emit_time));
-            info!("{}", format!("Total loop time: {:?}\n", loop_start.elapsed()));
+            info!(
+                "{}",
+                format!("Total loop time: {:?}\n", loop_start.elapsed())
+            );
         }
     });
 }

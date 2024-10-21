@@ -128,10 +128,14 @@ impl YOLOv8 {
     }
 
     pub fn preprocess(&mut self, xs: &Vec<DynamicImage>) -> Result<Array<f32, IxDyn>> {
+        let start = Instant::now();
         let mut ys =
             Array::ones((xs.len(), 3, self.height() as usize, self.width() as usize)).into_dyn();
         ys.fill(144.0 / 255.0);
+        info!("init ys: {:?}", start.elapsed());
+
         for (idx, x) in xs.iter().enumerate() {
+            let start = Instant::now();
             let img = match self.task() {
                 YOLOTask::Classify => x.resize_exact(
                     self.width(),
@@ -155,7 +159,8 @@ impl YOLOv8 {
                     )
                 }
             };
-
+            info!("resize exact: {:?}", start.elapsed());
+            let start = Instant::now();
             for (x, y, rgb) in img.pixels() {
                 let x = x as usize;
                 let y = y as usize;
@@ -164,6 +169,7 @@ impl YOLOv8 {
                 ys[[idx, 1, y, x]] = (g as f32) / 255.0;
                 ys[[idx, 2, y, x]] = (b as f32) / 255.0;
             }
+            info!("change pixel values: {:?}", start.elapsed());
         }
 
         Ok(ys)

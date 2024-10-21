@@ -1,15 +1,17 @@
-use tokio::sync::mpsc;
-use image::{DynamicImage, ImageFormat};
-use std::thread; 
-use std::sync::{Arc, Mutex};
-use opencv::{prelude::*, videoio};
 use anyhow::{bail, Error};
-use mat2image::ToImage;
-use std::time::{Duration, Instant};
-use std::io::Cursor;
+use image::{imageops, DynamicImage, ImageFormat};
 use log::info;
+use mat2image::ToImage;
+use opencv::videoio::CAP_ANY;
+use opencv::{prelude::*, videoio};
+use std::io::Cursor;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const NUM_CAMERAS: usize = 3;
+const VIEWS: [&str; NUM_CAMERAS] = ["top", "left", "front"];
 
 pub fn get_camera_indices() -> Vec<i32> {
     let mut indices = vec![];
@@ -38,23 +40,81 @@ fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, E
     }
 }
 
-fn setup_capture(win_index: i32, tx: mpsc::Sender<DynamicImage>) {
-    let mut cap = videoio::VideoCapture::new(0, videoio::CAP_ANY); 
+/*
+Intended to be run in a separate thread. Continuously captures frames from a camera and
+listens to update-camera events from the frontend to change the camera index.
+*/
+fn setup_capture(win_index: usize, tx: mpsc::SyncSender<DynamicImage>, window: tauri::Window) {
+    let (tx_camera_update, rx_camera_update) =
+        mpsc::sync_channel::<Result<videoio::VideoCapture, _>>(1);
+    window.listen(format!("update-camera-{}", VIEWS[win_index]), move |msg| {
+        // decode the payload
+        let index = match msg.payload() {
+            Some(msg) => {
+                let msg = msg
+                    .split_whitespace()
+                    .map(|s| s.parse().unwrap_or(-1))
+                    .collect::<Vec<i32>>();
 
+                msg[0]
+            }
+            None => -1,
+        };
+
+        // do nothing if the index is invalid (an error occurred with sending the payload
+        if index < 0 {
+            // potentially emit an error to the frontend
+            return;
+        }
+
+        // create a new VideoCapture object and send it to the main thread
+        let cap = videoio::VideoCapture::new(index, CAP_ANY);
+        tx_camera_update
+            .send(cap)
+            .expect("Reciever unexpectedly hung up when sending VideoCapture object.");
+    });
+
+    let mut cap = videoio::VideoCapture::new(0, CAP_ANY);
     loop {
-        
+        if let Ok(c) = cap.as_mut() {
+            match get_frame_from_cap(c) {
+                Ok(img) => {
+                    // ~400 ms for 4032x3024 -> 300x225
+                    let img = img.resize(640, 640, imageops::FilterType::Triangle);
+
+                    tx.send(img).unwrap();
+                }
+                Err(e) => {
+                    thread::sleep(Duration::from_millis(100));
+                    // emit error to frontend
+                    // do nothing and listen for camera change event
+                    // update the camera and continue the loop
+                }
+            }
+        } else {
+            thread::sleep(Duration::from_millis(100));
+            // emit error to frontend
+            // do nothing and listen for camera change event
+            // update the camera and continue the loop
+        }
+
+        // check for camera update
+        if let Ok(c) = rx_camera_update.try_recv() {
+            cap = c;
+        }
     }
 }
 
-pub fn setup_captures() -> Vec<mpsc::Receiver<DynamicImage>> {
-    let (tx, top_rx) = mpsc::channel::<DynamicImage>(10);
-    thread::spawn(|| setup_capture(0, tx));
-    let (tx, front_rx) = mpsc::channel::<DynamicImage>(10);
-    thread::spawn(|| setup_capture(1, tx));
-    let (tx, left_rx) = mpsc::channel::<DynamicImage>(10);
-    thread::spawn(|| setup_capture(2, tx));
+pub fn setup_captures(window: tauri::Window) -> Vec<mpsc::Receiver<DynamicImage>> {
+    let mut recievers = vec![];
+    for i in 0..NUM_CAMERAS {
+        let (tx, rx) = mpsc::sync_channel::<DynamicImage>(1);
+        let w_clone = window.clone();
+        thread::spawn(move || setup_capture(i, tx, w_clone));
+        recievers.push(rx);
+    }
 
-    vec![top_rx, left_rx, front_rx]
+    recievers
 }
 
 pub fn get_imgs(

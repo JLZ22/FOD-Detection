@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 pub mod app_backend;
 pub mod args;
 pub mod model;
-pub mod  multi_capture;
+pub mod multi_capture;
 pub mod ort_backend;
 pub mod yolo_result;
 pub use crate::args::Args;

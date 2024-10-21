@@ -1,0 +1,34 @@
+
+
+Time Logs:
+----------------------------------------
+
+20:48:49 [INFO] Starting next Iteration...
+20:48:50 [INFO] Get frames: 692.177041ms
+20:48:50 [INFO] init ys: 48.984792ms
+20:48:50 [INFO] resize exact: 10.717292ms
+20:48:50 [INFO] change pixel values: 267.0685ms
+20:48:50 [INFO] resize exact: 10.232834ms
+20:48:51 [INFO] change pixel values: 272.438042ms
+20:48:51 [INFO] resize exact: 10.266875ms
+20:48:51 [INFO] change pixel values: 267.645542ms
+20:48:51 [INFO] Model inference duration: 1.056709833s (Pre: 887.737417ms, Run: 111.600041ms, Post: 57.372375ms)
+20:48:51 [INFO] plot_batch duration: 25.793125ms
+20:48:51 [INFO] Byte conversion time: 7.831333ms
+20:48:51 [INFO] Emit time: 66.543416ms
+20:48:51 [INFO] Total loop time: 1.849467s
+
+20:48:51 [INFO] Starting next Iteration...
+20:48:51 [INFO] Get frames: 11.583µs
+20:48:51 [INFO] init ys: 41.944ms
+20:48:51 [INFO] resize exact: 10.241458ms
+20:48:51 [INFO] change pixel values: 272.452125ms
+20:48:51 [INFO] resize exact: 10.238125ms
+20:48:52 [INFO] change pixel values: 268.203167ms
+20:48:52 [INFO] resize exact: 11.126917ms
+20:48:52 [INFO] change pixel values: 280.77525ms
+20:48:52 [INFO] Model inference duration: 1.035759459s (Pre: 895.463125ms, Run: 84.957375ms, Post: 55.338959ms)
+20:48:52 [INFO] plot_batch duration: 25.230833ms
+20:48:52 [INFO] Byte conversion time: 7.162209ms
+20:48:52 [INFO] Emit time: 66.089083ms
+20:48:52 [INFO] Total loop time: 1.135117208s
