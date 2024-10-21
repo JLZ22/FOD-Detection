@@ -122,7 +122,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|_app| {
-            log::info!("Tauri application started");
+            log::info!("{}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+            log::info!("Tauri application started.");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

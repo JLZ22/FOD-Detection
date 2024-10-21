@@ -1,0 +1,19 @@
+commit 9e393d3d55d715a73bc587f7907860b01aca1ffb 
+Author: John Zeng <johnzeng878@gmail.com>
+Date:   Thu Oct 17 14:05:52 2024 -0400
+
+    move camera functions to different crate
+
+Time Logs:
+----------------------------------------
+
+02:20:01 [INFO] Starting next Iteration...
+02:20:01 [INFO] Get frames: 108.086166ms
+	- Time to grab frame for window 0: 42.359041ms
+	- Time to grab frame for window 1: 31.676916ms
+	- Time to grab frame for window 2: 33.984083ms
+02:20:03 [INFO] Model inference duration: 2.587287499s (Pre: 2.4374205s, Run: 92.989208ms, Post: 56.877791ms)
+02:20:04 [INFO] plot_batch duration: 201.771583ms
+02:20:04 [INFO] Byte conversion time: 64.242083ms
+02:20:04 [INFO] Emit time: 586.896833ms
+02:20:04 [INFO] Total loop time: 3.550338792s

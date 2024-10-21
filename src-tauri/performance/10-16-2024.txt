@@ -1,0 +1,25 @@
+commit 2f97aa11700e4f5a94c060d9c4b680487b3e2c2c
+Author: John Zeng <johnzeng878@gmail.com>
+Date:   Wed Oct 16 19:17:11 2024 -0400
+
+    overhaul logging system
+
+Time Logs:
+----------------------------------------
+
+02:08:40 [INFO] Starting next Iteration...                                                                                                                       johnzeng@Johns-MacBook-Pro-2
+02:08:40 [INFO] Get frames: 92.739333ms
+        - Time to grab frame for window 0: 40.171916ms
+        - Time to grab frame for window 1: 33.309792ms
+        - Time to grab frame for window 2: 19.15075ms
+02:08:43 [INFO] [Model inference]: 2.625420834s (Pre: 2.475512333s, Run: 94.232834ms, Post: 55.675667ms)
+02:08:43 [INFO] Plot images: 206.504625ms
+02:08:45 [INFO] Emit images: 1.999471333s
+        - Time to emit image for window 0: 597.657416ms
+        - Time to emit image for window 1: 608.314042ms
+        - Time to emit image for window 2: 600.33425ms
+02:08:45 [INFO] [Convert images to bytes Bmp]: 1.999471334s
+        - Time to convert image to bytes for window 0: 65.218083ms
+        - Time to convert image to bytes for window 1: 64.925166ms
+        - Time to convert image to bytes for window 2: 63.004833ms
+02:08:45 [INFO] Total loop time: 4.92684675s
