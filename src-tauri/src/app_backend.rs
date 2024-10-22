@@ -3,13 +3,12 @@ use crate::model::YOLOv8;
 use crate::multi_capture::{self, setup_captures};
 use image::{DynamicImage, ImageFormat};
 use log::info;
-use opencv::videoio;
 use serde::Serialize;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const NUM_CAMERAS: usize = 3;
+const VIEWS: [&str; NUM_CAMERAS] = ["top", "left", "front"];
 const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
 const IMAGE_FORMAT: ImageFormat = ImageFormat::Bmp;
@@ -142,40 +141,29 @@ pub fn start_streaming(window: tauri::Window) {
 
         let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
-        // define video capture objects with camera index 0
-        let start = Instant::now();
-        let mut caps = vec![];
-        for _ in 0..=2 {
-            match videoio::VideoCapture::new(0, videoio::CAP_ANY) {
-                Ok(cap) => caps.push(Some(cap)),
-                Err(_) => caps.push(None),
-            }
-        }
-        info!(
-            "Initial camera setup complete! Duration: {:?}",
-            start.elapsed()
-        );
+        // setup capture threads and recievers
+        // capture threads send Frame enums to recievers
+        let recievers = setup_captures(window.clone(), NUM_CAMERAS, VIEWS.to_vec());
 
-        // wrap the video objects in ArcMutex to allow for shared mutable access
-        let caps = Arc::new(Mutex::new(caps));
-
-        // create event handler to update video capture objects
-        let _event_handler = multi_capture::build_camera_update_handler(&window, Arc::clone(&caps));
-        let recievers = setup_captures(window.clone());
         info!("Starting multi-camera capture and inference loop...\n");
         loop {
             info!("Starting next Iteration...");
             let loop_start = Instant::now();
-            let mut imgs = vec![];
+            let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
             let mut err = vec![String::default(); NUM_CAMERAS];
 
-            // get frames from each camera
+            // get a Frame from reciever and update imgs/err appropriately
             let start = Instant::now();
-            for rx in recievers.iter() {
-                imgs.push(
-                    rx.recv()
-                        .expect("Failed to recieve image from capture thread."),
-                );
+            for (i, rx) in recievers.iter().enumerate() {
+                let frame = rx.recv().expect("Failed to recieve frame from capture thread.");
+                match frame {
+                    multi_capture::Frame::Image(img) => {
+                        imgs[i] = img;
+                    }
+                    multi_capture::Frame::Error(e) => {
+                        err[i] = e;
+                    }
+                }
             }
             info!("Get frames: {:?}", start.elapsed());
 

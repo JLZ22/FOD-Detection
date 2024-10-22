@@ -129,7 +129,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_backend::poll_and_emit_image_sources,
             app_backend::start_streaming,
-            multi_capture::update_camera,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

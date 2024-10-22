@@ -11,18 +11,12 @@
 		
 		const unsubscribe_top = top.subscribe(value => {
 			emit('update-camera-top', value);
-			// remove the next line later
-			invoke('update_camera', {winIndex: 0, camIndex: value});
 		});
 		const unsubscribe_front = front.subscribe(value => {
 			emit('update-camera-front', value);
-			// remove the next line later
-			invoke('update_camera', {winIndex: 1, camIndex: value});
 		});
 		const unsubscribe_left = left.subscribe(value => {
 			emit('update-camera-left', value);
-			// remove the next line later
-			invoke('update_camera', {winIndex: 2, camIndex: value});
 		});
 
 
