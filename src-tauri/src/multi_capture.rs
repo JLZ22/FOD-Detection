@@ -74,39 +74,42 @@ Intended to be run in a separate thread. Continuously captures frames from a cam
 listens to update-camera events from the frontend to change the camera index.
 */
 fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
-    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(1);
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(0);
     setup_camera_update_listener(window.clone(), tx_camera_update, view);
-    
-    let mut cap_index = 0;
-    let mut cap = videoio::VideoCapture::new(cap_index, CAP_ANY).map_err(|e| Error::new(e));
+
+    let mut cam = Camera{
+        cap: videoio::VideoCapture::new(0, CAP_ANY).map_err(|e| Error::new(e)),
+        index: 0,
+    };
+
+    // resize takes up ~90% of processing time (500ms / 550ms)
     loop {
-        if let Ok(c) = cap.as_mut() {
+        if let Ok(c) = cam.cap.as_mut() {
             match get_frame_from_cap(c) {
                 Ok(img) => {
                     // ~400 ms for 4032x3024 -> 300x225
-                    let img = img.resize(640, 640, imageops::FilterType::Triangle);
+                    let img = img.resize(640, 640, imageops::FilterType::Triangle); 
 
                     tx.send(Frame::Image(img)).unwrap();
                 }
                 Err(_) => {
                     tx.send(Frame::Error(format!(
                         "Could not retrieve frame from camera {}.",
-                        cap_index
+                        cam.index
                     )))
                     .expect("Failed to send error message.");
                     thread::sleep(Duration::from_millis(100));
                 }
             }
         } else {
-            tx.send(Frame::Error(format!("Camera {} is invalid.", cap_index)))
+            tx.send(Frame::Error(format!("Camera {} is invalid.", cam.index)))
                 .expect("Failed to send error message.");
             thread::sleep(Duration::from_millis(100));
         }
 
         // check for camera update
-        if let Ok(cam) = rx_camera_update.try_recv() {
-            cap = cam.cap;
-            cap_index = cam.index;
+        if let Ok(c) = rx_camera_update.try_recv() {
+            cam = c;
         }
     }
 }

@@ -42,8 +42,8 @@ impl Payload {
     }
 }
 
-
 fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: usize) {
+    // ~60ms per emission excluding waiting for the next frame
     loop {
         let batch = rx
         .recv()
@@ -63,7 +63,7 @@ fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: us
 fn setup_emitters(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::SyncSender<Batch>> {
     let mut senders = vec![];
     for (i, _) in views.iter().enumerate() {
-        let (tx, rx) = mpsc::sync_channel::<Batch>(1);
+        let (tx, rx) = mpsc::sync_channel::<Batch>(5);
         let w_clone = window.clone();
         thread::spawn(move || setup_emitter(rx, w_clone, i));
         senders.push(tx);
