@@ -1,5 +1,5 @@
 use anyhow::{bail, Error, Result};
-use image::{imageops, DynamicImage, ImageFormat};
+use image::{DynamicImage, ImageFormat};
 use mat2image::ToImage;
 use opencv::videoio::CAP_ANY;
 use opencv::{prelude::*, videoio};
@@ -15,8 +15,13 @@ pub enum Frame {
 }
 
 struct Camera {
-    cap: Result<videoio::VideoCapture, Error>,
+    cap: videoio::VideoCapture,
     index: i32,
+}
+
+enum CameraResult {
+    Camera(Camera),
+    Error(String),
 }
 
 pub fn get_camera_indices() -> Vec<i32> {
@@ -46,7 +51,18 @@ fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, E
     }
 }
 
-fn setup_camera_update_listener(window: tauri::Window, tx: mpsc::SyncSender<Camera>, view: String) {
+// eventually allow users to select aspect ratio?????? 
+fn set_cap_properties(cap: &mut videoio::VideoCapture) {
+    cap.set(videoio::CAP_PROP_FRAME_WIDTH, 640.0).unwrap();
+    cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 360.0).unwrap();
+    cap.set(videoio::CAP_PROP_FPS, 30.0).unwrap();
+}
+
+fn setup_camera_update_listener(
+    window: tauri::Window,
+    tx: mpsc::SyncSender<CameraResult>,
+    view: String,
+) {
     window.listen(format!("update-camera-{}", view), move |msg| {
         // decode the payload
         let index = match msg.payload() {
@@ -61,11 +77,20 @@ fn setup_camera_update_listener(window: tauri::Window, tx: mpsc::SyncSender<Came
             None => -1,
         };
 
-        tx.send(Camera {
-            cap: videoio::VideoCapture::new(index, CAP_ANY).map_err(|e| Error::new(e)),
-            index,
-        })
-        .expect("Reciever unexpectedly hung up when sending VideoCapture object.");
+        let cap = videoio::VideoCapture::new(index, CAP_ANY);
+
+        match cap {
+            Ok(mut cap) => {
+                set_cap_properties(&mut cap);
+
+                tx.send(CameraResult::Camera(Camera { cap, index }))
+                    .expect("Reciever unexpectedly hung up when sending Camera struct.");
+            }
+            Err(_) => {
+                tx.send(CameraResult::Error(format!("Camera {} is invalid.", index)))
+                    .expect("Reciever unexpectedly hung up when sending Camera struct.");
+            }
+        }
     });
 }
 
@@ -74,42 +99,54 @@ Intended to be run in a separate thread. Continuously captures frames from a cam
 listens to update-camera events from the frontend to change the camera index.
 */
 fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
-    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(0);
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<CameraResult>(1);
     setup_camera_update_listener(window.clone(), tx_camera_update, view);
 
-    let mut cam = Camera{
-        cap: videoio::VideoCapture::new(0, CAP_ANY).map_err(|e| Error::new(e)),
-        index: 0,
+    let cap = videoio::VideoCapture::new(0, videoio::CAP_ANY);
+
+    let mut cam_result = match cap {
+        Ok(mut cap) => {
+            set_cap_properties(&mut cap);
+            log::info!("frame width: {}", cap.get(videoio::CAP_PROP_FRAME_WIDTH).unwrap());
+            log::info!("backend name: {}", cap.get_backend_name().unwrap());
+
+            CameraResult::Camera(Camera { cap, index: 0 })
+        }
+        Err(_) => {
+            CameraResult::Error("Camera 0 is invalid.".to_string())
+        }
     };
 
     // resize takes up ~90% of processing time (500ms / 550ms)
     loop {
-        if let Ok(c) = cam.cap.as_mut() {
-            match get_frame_from_cap(c) {
-                Ok(img) => {
-                    // ~400 ms for 4032x3024 -> 300x225
-                    let img = img.resize(640, 640, imageops::FilterType::Triangle); 
-
-                    tx.send(Frame::Image(img)).unwrap();
-                }
-                Err(_) => {
-                    tx.send(Frame::Error(format!(
-                        "Could not retrieve frame from camera {}.",
-                        cam.index
-                    )))
-                    .expect("Failed to send error message.");
-                    thread::sleep(Duration::from_millis(100));
+        match cam_result {
+            CameraResult::Camera(ref mut c) => {
+                match get_frame_from_cap(&mut c.cap) {
+                    Ok(img) => {
+                        if tx.try_send(Frame::Image(img)).is_err() {
+                            thread::sleep(Duration::from_millis(50));
+                        }
+                    }
+                    Err(_) => {
+                        tx.send(Frame::Error(format!(
+                            "Could not retrieve frame from camera {}.",
+                            c.index
+                        )))
+                        .expect("Failed to send error message.");
+                        thread::sleep(Duration::from_millis(100));
+                    }
                 }
             }
-        } else {
-            tx.send(Frame::Error(format!("Camera {} is invalid.", cam.index)))
-                .expect("Failed to send error message.");
-            thread::sleep(Duration::from_millis(100));
+            CameraResult::Error(ref e) => {
+                tx.send(Frame::Error(e.clone()))
+                    .expect("Failed to send error message.");
+                thread::sleep(Duration::from_millis(100));
+            }
         }
 
         // check for camera update
         if let Ok(c) = rx_camera_update.try_recv() {
-            cam = c;
+            cam_result = c;
         }
     }
 }
