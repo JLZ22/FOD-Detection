@@ -8,12 +8,15 @@
 
     let error_message: string = '';
     let img_url: string;
+    let last_frame_time = new Date();
 
     onMount(() => {
         let unlisten: () => void; 
         const setup_listener = async () => {
              unlisten = await listen(`image-payload-${winId}`, (event) => {
                 const {image, error} = event.payload as {image: Uint8Array, error: string};
+                let frame_recieved_time = new Date();
+                console.log(`Time since last frame for ${windowName}: ${frame_recieved_time.getTime() - last_frame_time.getTime()}ms`);
                 
                 if (error) {
                     error_message = error;
@@ -25,6 +28,8 @@
                     error_message = '';
                     updateUrl(URL.createObjectURL(new Blob([new Uint8Array(image).buffer])));
                 }
+                
+                last_frame_time = new Date();
             });
         }
         

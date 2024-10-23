@@ -46,12 +46,7 @@ fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, E
     }
 }
 
-/*
-Intended to be run in a separate thread. Continuously captures frames from a camera and
-listens to update-camera events from the frontend to change the camera index.
-*/
-fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
-    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(1);
+fn setup_camera_update_listener(window: tauri::Window, tx: mpsc::SyncSender<Camera>, view: String) {
     window.listen(format!("update-camera-{}", view), move |msg| {
         // decode the payload
         let index = match msg.payload() {
@@ -66,14 +61,22 @@ fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: Strin
             None => -1,
         };
 
-        tx_camera_update
-            .send(Camera {
-                cap: videoio::VideoCapture::new(index, CAP_ANY).map_err(|e| Error::new(e)),
-                index,
-            })
-            .expect("Reciever unexpectedly hung up when sending VideoCapture object.");
+        tx.send(Camera {
+            cap: videoio::VideoCapture::new(index, CAP_ANY).map_err(|e| Error::new(e)),
+            index,
+        })
+        .expect("Reciever unexpectedly hung up when sending VideoCapture object.");
     });
+}
 
+/*
+Intended to be run in a separate thread. Continuously captures frames from a camera and
+listens to update-camera events from the frontend to change the camera index.
+*/
+fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(1);
+    setup_camera_update_listener(window.clone(), tx_camera_update, view);
+    
     let mut cap_index = 0;
     let mut cap = videoio::VideoCapture::new(cap_index, CAP_ANY).map_err(|e| Error::new(e));
     loop {
