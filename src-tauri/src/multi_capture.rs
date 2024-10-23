@@ -1,4 +1,4 @@
-use anyhow::{bail, Error};
+use anyhow::{bail, Error, Result};
 use image::{imageops, DynamicImage, ImageFormat};
 use mat2image::ToImage;
 use opencv::videoio::CAP_ANY;
@@ -12,6 +12,11 @@ use std::time::Duration;
 pub enum Frame {
     Image(DynamicImage),
     Error(String),
+}
+
+struct Camera {
+    cap: Result<videoio::VideoCapture, Error>,
+    index: i32,
 }
 
 pub fn get_camera_indices() -> Vec<i32> {
@@ -46,8 +51,7 @@ Intended to be run in a separate thread. Continuously captures frames from a cam
 listens to update-camera events from the frontend to change the camera index.
 */
 fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
-    let (tx_camera_update, rx_camera_update) =
-        mpsc::sync_channel::<(Result<videoio::VideoCapture, _>, i32)>(1);
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Camera>(1);
     window.listen(format!("update-camera-{}", view), move |msg| {
         // decode the payload
         let index = match msg.payload() {
@@ -62,15 +66,16 @@ fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: Strin
             None => -1,
         };
 
-        // create a new VideoCapture object and send it to the main thread
-        let cap = videoio::VideoCapture::new(index, CAP_ANY);
         tx_camera_update
-            .send((cap, index))
+            .send(Camera {
+                cap: videoio::VideoCapture::new(index, CAP_ANY).map_err(|e| Error::new(e)),
+                index,
+            })
             .expect("Reciever unexpectedly hung up when sending VideoCapture object.");
     });
 
     let mut cap_index = 0;
-    let mut cap = videoio::VideoCapture::new(cap_index, CAP_ANY);
+    let mut cap = videoio::VideoCapture::new(cap_index, CAP_ANY).map_err(|e| Error::new(e));
     loop {
         if let Ok(c) = cap.as_mut() {
             match get_frame_from_cap(c) {
@@ -96,23 +101,19 @@ fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: Strin
         }
 
         // check for camera update
-        if let Ok((new_cap, new_index)) = rx_camera_update.try_recv() {
-            cap = new_cap;
-            cap_index = new_index;
+        if let Ok(cam) = rx_camera_update.try_recv() {
+            cap = cam.cap;
+            cap_index = cam.index;
         }
     }
 }
 
-pub fn setup_captures(
-    window: tauri::Window,
-    num_captures: usize,
-    views: Vec<&str>,
-) -> Vec<mpsc::Receiver<Frame>> {
+pub fn setup_captures(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::Receiver<Frame>> {
     let mut recievers = vec![];
-    for i in 0..num_captures {
+    for view in views {
         let (tx, rx) = mpsc::sync_channel::<Frame>(1);
         let w_clone = window.clone();
-        let view = views[i].to_string().clone();
+        let view = view.to_string().clone();
         thread::spawn(move || setup_capture(tx, w_clone, view));
         recievers.push(rx);
     }
