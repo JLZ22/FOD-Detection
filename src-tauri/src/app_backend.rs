@@ -89,7 +89,7 @@ TODO: increase the batch size and pull more frames per camera
     - adjust other operations accordingly (consider multi-threading)
 */
 #[tauri::command]
-pub fn start_streaming(window: tauri::Window) {
+pub async fn start_streaming(window: tauri::Window) {
     info!("Starting streaming...");
 
     let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
