@@ -51,10 +51,10 @@ fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, E
     }
 }
 
-// eventually allow users to select aspect ratio?????? 
+// eventually allow users to select aspect ratio??????
 fn set_cap_properties(cap: &mut videoio::VideoCapture) {
     cap.set(videoio::CAP_PROP_FRAME_WIDTH, 640.0).unwrap();
-    cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 360.0).unwrap();
+    cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 480.0).unwrap();
     cap.set(videoio::CAP_PROP_FPS, 30.0).unwrap();
 }
 
@@ -107,36 +107,30 @@ fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: Strin
     let mut cam_result = match cap {
         Ok(mut cap) => {
             set_cap_properties(&mut cap);
-            log::info!("frame width: {}", cap.get(videoio::CAP_PROP_FRAME_WIDTH).unwrap());
-            log::info!("backend name: {}", cap.get_backend_name().unwrap());
 
             CameraResult::Camera(Camera { cap, index: 0 })
         }
-        Err(_) => {
-            CameraResult::Error("Camera 0 is invalid.".to_string())
-        }
+        Err(_) => CameraResult::Error("Camera 0 is invalid.".to_string()),
     };
 
     // resize takes up ~90% of processing time (500ms / 550ms)
     loop {
         match cam_result {
-            CameraResult::Camera(ref mut c) => {
-                match get_frame_from_cap(&mut c.cap) {
-                    Ok(img) => {
-                        if tx.try_send(Frame::Image(img)).is_err() {
-                            thread::sleep(Duration::from_millis(50));
-                        }
-                    }
-                    Err(_) => {
-                        tx.send(Frame::Error(format!(
-                            "Could not retrieve frame from camera {}.",
-                            c.index
-                        )))
-                        .expect("Failed to send error message.");
-                        thread::sleep(Duration::from_millis(100));
+            CameraResult::Camera(ref mut c) => match get_frame_from_cap(&mut c.cap) {
+                Ok(img) => {
+                    if tx.try_send(Frame::Image(img)).is_err() {
+                        thread::sleep(Duration::from_millis(10));
                     }
                 }
-            }
+                Err(_) => {
+                    tx.send(Frame::Error(format!(
+                        "Could not retrieve frame from camera {}.",
+                        c.index
+                    )))
+                    .expect("Failed to send error message.");
+                    thread::sleep(Duration::from_millis(100));
+                }
+            },
             CameraResult::Error(ref e) => {
                 tx.send(Frame::Error(e.clone()))
                     .expect("Failed to send error message.");

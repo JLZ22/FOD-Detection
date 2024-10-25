@@ -46,8 +46,8 @@ fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: us
     // ~60ms per emission excluding waiting for the next frame
     loop {
         let batch = rx
-        .recv()
-        .expect("Failed to recieve batch from capture thread.");
+            .recv()
+            .expect("Failed to recieve batch from capture thread.");
         window
             .emit(
                 &format!("image-payload-{}", win_index)[..],
@@ -87,6 +87,7 @@ notes:
     - proportional to image size?
 
 TODO: INFERENCE IS THE BOTTLENECK
+TODO: track images and errors separately to allow for more flexible error handling
 TODO: play with changing resolution and requesting a mjpeg
 
 TODO: pull frames from the cameras in parallel

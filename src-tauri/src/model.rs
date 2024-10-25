@@ -5,6 +5,7 @@ use image::{DynamicImage, GenericImageView, ImageBuffer};
 use log::info;
 use ndarray::{s, Array, Axis, IxDyn};
 use rand::{thread_rng, Rng};
+use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -128,14 +129,13 @@ impl YOLOv8 {
     }
 
     pub fn preprocess(&mut self, xs: &Vec<DynamicImage>) -> Result<Array<f32, IxDyn>> {
-        let start = Instant::now();
+        let fill_val = 144.0 / 255.0;
+        // ys --> (num images x num channels x height x width)
         let mut ys =
             Array::ones((xs.len(), 3, self.height() as usize, self.width() as usize)).into_dyn();
-        ys.fill(144.0 / 255.0);
-        info!("init ys: {:?}", start.elapsed());
+        ys.fill(fill_val);
 
         for (idx, x) in xs.iter().enumerate() {
-            let start = Instant::now();
             let img = match self.task() {
                 YOLOTask::Classify => x.resize_exact(
                     self.width(),
@@ -159,17 +159,24 @@ impl YOLOv8 {
                     )
                 }
             };
-            info!("resize exact: {:?}", start.elapsed());
-            let start = Instant::now();
-            for (x, y, rgb) in img.pixels() {
-                let x = x as usize;
-                let y = y as usize;
-                let [r, g, b, _] = rgb.0;
-                ys[[idx, 0, y, x]] = (r as f32) / 255.0;
-                ys[[idx, 1, y, x]] = (g as f32) / 255.0;
-                ys[[idx, 2, y, x]] = (b as f32) / 255.0;
-            }
-            info!("change pixel values: {:?}", start.elapsed());
+
+            // normalize each pixel parallely
+            let mut res = img.as_rgb8().expect("valid RGB8").par_iter().map(|&b| {
+                (b as f32) / 255.0
+            }).collect::<Vec<_>>();
+
+            // add filler pixels as padding
+            let flattened_diff = 3 * self.width() * self.height() - res.len() as u32;
+            res.extend(vec![fill_val ; flattened_diff as usize]);
+
+            // resize from 1D to h x w x 3
+            let res = Array::from_shape_vec((self.height() as usize, self.width() as usize, 3), res).expect("valid matrix");
+
+            // resize from h x w x 3 to 3 x h x w
+            let res = res.into_shape((3, self.height() as usize, self.width() as usize)).expect("valid reshape");
+            
+            // assign to output array 
+            ys.index_axis_mut(Axis(0), idx).assign(&res);
         }
 
         Ok(ys)
