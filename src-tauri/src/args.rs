@@ -87,8 +87,8 @@ impl Default for Args {
             nc: Some(5), // Number of classes
             nk: None,    // Number of keypoints
             nm: None,    // Number of masks
-            width: Some(512), // Input image width for YOLO model
-            height: Some(512), // Input image height for YOLO model
+            width: Some(640), // Input image width for YOLO model
+            height: Some(640), // Input image height for YOLO model
             conf: 0.5,   // Confidence threshold for detections
             iou: 0.5,    // IoU threshold for Non-Max Suppression
             kconf: 0.5,  // Keypoint confidence threshold (if keypoints are used)
