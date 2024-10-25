@@ -1,0 +1,56 @@
+commit e222496df41315ddc74eb6c77b1a0b5603f1969e
+Author: John Zeng <johnzeng878@gmail.com>
+Date:   Fri Oct 25 17:24:15 2024 -0400
+
+    parallelize pre-processing
+
+Time Logs:
+----------------------------------------
+
+21:23:16 [INFO] Starting next Iteration...
+21:23:18 [INFO] Get frames: 1.636707125s
+21:23:18 [INFO] Model inference duration: 305.937793ms (Pre: 116.330084ms, Run: 130.355084ms, Post: 59.252625ms)
+21:23:18 [INFO] plot_batch duration: 30.844041ms
+21:23:18 [INFO] Total loop time: 1.974109709s
+
+21:23:18 [INFO] Starting next Iteration...
+21:23:18 [INFO] Get frames: 2.625µs
+21:23:18 [INFO] Model inference duration: 301.039583ms (Pre: 130.826541ms, Run: 115.980042ms, Post: 54.233ms)
+21:23:19 [INFO] plot_batch duration: 27.794458ms
+21:23:19 [INFO] Total loop time: 329.35475ms
+
+21:23:19 [INFO] Starting next Iteration...
+21:23:19 [INFO] Get frames: 3µs
+21:23:19 [INFO] Model inference duration: 311.483667ms (Pre: 119.627209ms, Run: 133.966875ms, Post: 57.889583ms)
+21:23:19 [INFO] plot_batch duration: 50.272334ms
+21:23:19 [INFO] Total loop time: 362.445041ms
+
+21:23:19 [INFO] Starting next Iteration...
+21:23:19 [INFO] Get frames: 2.542µs
+21:23:19 [INFO] Model inference duration: 292.076709ms (Pre: 134.291167ms, Run: 100.748ms, Post: 57.037542ms)
+21:23:19 [INFO] plot_batch duration: 29.424125ms
+21:23:19 [INFO] Total loop time: 322.140917ms
+
+21:23:19 [INFO] Starting next Iteration...
+21:23:19 [INFO] Get frames: 2.458µs
+21:23:19 [INFO] Model inference duration: 272.265375ms (Pre: 116.606833ms, Run: 99.037542ms, Post: 56.621ms)
+21:23:20 [INFO] plot_batch duration: 28.991125ms
+21:23:20 [INFO] Total loop time: 301.938083ms
+
+21:23:20 [INFO] Starting next Iteration...
+21:23:20 [INFO] Get frames: 3µs
+21:23:20 [INFO] Model inference duration: 279.975208ms (Pre: 114.595417ms, Run: 111.551125ms, Post: 53.828666ms)
+21:23:20 [INFO] plot_batch duration: 28.763083ms
+21:23:20 [INFO] Total loop time: 309.320791ms
+
+21:23:20 [INFO] Starting next Iteration...
+21:23:20 [INFO] Get frames: 2.5µs
+21:23:20 [INFO] Model inference duration: 270.102749ms (Pre: 117.284833ms, Run: 97.825125ms, Post: 54.992791ms)
+21:23:20 [INFO] plot_batch duration: 30.904833ms
+21:23:20 [INFO] Total loop time: 301.568375ms
+
+21:23:20 [INFO] Starting next Iteration...
+21:23:20 [INFO] Get frames: 3.583µs
+21:23:20 [INFO] Model inference duration: 278.768417ms (Pre: 121.727917ms, Run: 102.2595ms, Post: 54.781ms)
+21:23:20 [INFO] plot_batch duration: 28.837208ms
+21:23:20 [INFO] Total loop time: 308.193667ms
