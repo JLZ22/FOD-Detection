@@ -97,7 +97,7 @@ TODO: increase the batch size and pull more frames per camera
 TODO: look into migrating to web sockets for faster communication
 */
 #[tauri::command]
-pub async fn start_streaming(window: tauri::Window) {
+pub fn start_streaming(window: tauri::Window) {
     info!("Starting streaming...");
 
     let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
