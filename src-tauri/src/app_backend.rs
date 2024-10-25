@@ -82,19 +82,11 @@ pub fn poll_and_emit_image_sources(window: tauri::Window) {
 }
 
 /*
-notes:
-    - emitting is slow for frequent updates
-    - proportional to image size?
-
-TODO: INFERENCE IS THE BOTTLENECK
 TODO: track images and errors separately to allow for more flexible error handling
-TODO: play with changing resolution and requesting a mjpeg
 
-TODO: pull frames from the cameras in parallel
 TODO: look into lossy compression
 TODO: increase the batch size and pull more frames per camera
     - adjust other operations accordingly (consider multi-threading)
-TODO: look into migrating to web sockets for faster communication
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
@@ -102,9 +94,9 @@ pub fn start_streaming(window: tauri::Window) {
 
     let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
-    // setup capture threads and recievers
-    // capture threads send Frame enums to recievers
+    // setup capture threads
     let frame_recievers = setup_captures(window.clone(), VIEWS.to_vec());
+    // set up emitter threads 
     let payload_senders = setup_emitters(window.clone(), VIEWS.to_vec());
 
     info!("Starting multi-camera capture and inference loop...\n");
