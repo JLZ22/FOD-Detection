@@ -89,7 +89,7 @@ TODO: increase the batch size and pull more frames per camera
     - adjust other operations accordingly (consider multi-threading)
 */
 #[tauri::command]
-pub async fn start_streaming(window: tauri::Window) {
+pub fn start_streaming(window: tauri::Window) {
     info!("Starting streaming...");
 
     let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
@@ -99,54 +99,58 @@ pub async fn start_streaming(window: tauri::Window) {
     // set up emitter threads 
     let payload_senders = setup_emitters(window.clone(), VIEWS.to_vec());
 
-    info!("Starting multi-camera capture and inference loop...\n");
-    loop {
-        info!("Starting next Iteration...");
-        let loop_start = Instant::now();
-        let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
-        let mut err = vec![String::default(); NUM_CAMERAS];
-
-        // get a Frame from reciever and update imgs/err appropriately
-        let start = Instant::now();
-        for (i, rx) in frame_recievers.iter().enumerate() {
-            let frame = rx
-                .recv()
-                .expect("Failed to recieve frame from capture thread.");
-            match frame {
-                multi_capture::Frame::Image(img) => {
-                    imgs[i] = img;
-                }
-                multi_capture::Frame::Error(e) => {
-                    err[i] = e;
+    
+    std::thread::spawn( move || {
+        info!("Starting multi-camera capture and inference loop...\n");
+        loop {
+            info!("Starting next Iteration...");
+            let loop_start = Instant::now();
+            let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
+            let mut err = vec![String::default(); NUM_CAMERAS];
+    
+            // get a Frame from reciever and update imgs/err appropriately
+            let start = Instant::now();
+            for (i, rx) in frame_recievers.iter().enumerate() {
+                let frame = rx
+                    .recv()
+                    .expect("Failed to recieve frame from capture thread.");
+                match frame {
+                    multi_capture::Frame::Image(img) => {
+                        imgs[i] = img;
+                    }
+                    multi_capture::Frame::Error(e) => {
+                        err[i] = e;
+                    }
                 }
             }
+            info!("Get frames: {:?}", start.elapsed());
+    
+            if INFERENCE {
+                // run inference
+                let results = model.run(&imgs).expect("valid model result");
+    
+                // plot images
+                let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel
+    
+                imgs = ploted_imgs
+                    .iter()
+                    .map(|img| DynamicImage::ImageRgb8(img.clone()))
+                    .collect();
+            }
+    
+            for (i, tx) in payload_senders.iter().enumerate() {
+                tx.send(Batch {
+                    image: imgs[i].clone(),
+                    error: err[i].clone(),
+                })
+                .expect("Failed to send batch to emitter thread.");
+            }
+    
+            info!(
+                "{}",
+                format!("Total loop time: {:?}\n", loop_start.elapsed())
+            );
         }
-        info!("Get frames: {:?}", start.elapsed());
+    });
 
-        if INFERENCE {
-            // run inference
-            let results = model.run(&imgs).unwrap();
-
-            // plot images
-            let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel
-
-            imgs = ploted_imgs
-                .iter()
-                .map(|img| DynamicImage::ImageRgb8(img.clone()))
-                .collect();
-        }
-
-        for (i, tx) in payload_senders.iter().enumerate() {
-            tx.send(Batch {
-                image: imgs[i].clone(),
-                error: err[i].clone(),
-            })
-            .expect("Failed to send batch to emitter thread.");
-        }
-
-        info!(
-            "{}",
-            format!("Total loop time: {:?}\n", loop_start.elapsed())
-        );
-    }
 }
