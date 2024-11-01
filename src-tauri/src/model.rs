@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::{
-    check_font, gen_time_string, non_max_suppression, Args, Batch, Bbox, Embedding, OrtBackend,
+    check_font, gen_time_string, non_max_suppression, multi_capture, Args, Batch, Bbox, Embedding, OrtBackend,
     OrtConfig, OrtEP, Point2, YOLOResult, YOLOTask,
 };
 
@@ -148,34 +148,39 @@ impl YOLOv8 {
                     let h0 = h0 as f32;
                     let (_, w_new, h_new) =
                         self.scale_wh(w0, h0, self.width() as f32, self.height() as f32); // f32 round
-                    x.resize_exact(
-                        w_new as u32,
-                        h_new as u32,
-                        if let YOLOTask::Segment = self.task() {
-                            image::imageops::FilterType::CatmullRom
-                        } else {
-                            image::imageops::FilterType::Triangle
-                        },
-                    )
+                    if !(w_new == self.width() as f32 && h_new == self.height as f32) {
+                        x.resize_exact(
+                            w_new as u32,
+                            h_new as u32,
+                            if let YOLOTask::Segment = self.task() {
+                                image::imageops::FilterType::CatmullRom
+                            } else {
+                                image::imageops::FilterType::Triangle
+                            },
+                        )
+                    } else {
+                        x.clone()
+                    }
                 }
             };
 
-            // normalize each pixel parallely
-            let mut res = img.as_rgb8().expect("valid RGB8").par_iter().map(|&b| {
-                (b as f32) / 255.0
-            }).collect::<Vec<_>>();
+            let img = multi_capture::pad_to_size(img, self.height, self.width, 144);
 
-            // add filler pixels as padding
-            let flattened_diff = 3 * self.width() * self.height() - res.len() as u32;
-            res.extend(vec![fill_val ; flattened_diff as usize]);
+            // normalize each pixel parallely
+            let res = img
+                .as_rgb8()
+                .expect("valid RGB8")
+                .par_iter()
+                .map(|&b| (b as f32) / 255.0)
+                .collect::<Vec<_>>();
 
             // resize from 1D to h x w x 3
-            let res = Array::from_shape_vec((self.height() as usize, self.width() as usize, 3), res).expect("valid matrix");
+            let res =
+                Array::from_shape_vec((self.height() as usize, self.width() as usize, 3), res).expect("valid matrix");
 
-            // resize from h x w x 3 to 3 x h x w
-            let res = res.into_shape((3, self.height() as usize, self.width() as usize)).expect("valid reshape");
-            
-            // assign to output array 
+            let res = res.permuted_axes([2,0,1]); 
+
+            // assign to output array
             ys.index_axis_mut(Axis(0), idx).assign(&res);
         }
 

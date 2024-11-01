@@ -96,18 +96,17 @@ pub fn start_streaming(window: tauri::Window) {
 
     // setup capture threads
     let frame_recievers = setup_captures(window.clone(), VIEWS.to_vec());
-    // set up emitter threads 
+    // set up emitter threads
     let payload_senders = setup_emitters(window.clone(), VIEWS.to_vec());
 
-    
-    std::thread::spawn( move || {
+    std::thread::spawn(move || {
         info!("Starting multi-camera capture and inference loop...\n");
         loop {
             info!("Starting next Iteration...");
             let loop_start = Instant::now();
             let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
             let mut err = vec![String::default(); NUM_CAMERAS];
-    
+
             // get a Frame from reciever and update imgs/err appropriately
             let start = Instant::now();
             for (i, rx) in frame_recievers.iter().enumerate() {
@@ -124,20 +123,22 @@ pub fn start_streaming(window: tauri::Window) {
                 }
             }
             info!("Get frames: {:?}", start.elapsed());
-    
+
             if INFERENCE {
                 // run inference
                 let results = model.run(&imgs).expect("valid model result");
-    
+
+                info!("{:?}", results);
+
                 // plot images
                 let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel
-    
+
                 imgs = ploted_imgs
                     .iter()
                     .map(|img| DynamicImage::ImageRgb8(img.clone()))
                     .collect();
             }
-    
+
             for (i, tx) in payload_senders.iter().enumerate() {
                 tx.send(Batch {
                     image: imgs[i].clone(),
@@ -145,12 +146,11 @@ pub fn start_streaming(window: tauri::Window) {
                 })
                 .expect("Failed to send batch to emitter thread.");
             }
-    
+
             info!(
                 "{}",
                 format!("Total loop time: {:?}\n", loop_start.elapsed())
             );
         }
     });
-
 }
