@@ -179,12 +179,8 @@ pub fn pad_to_size(img: DynamicImage, target_h: u32, target_w: u32, fill_value: 
     // Create a new image with the target size and fill it with the fill_value (for an RGBA image)
     let mut padded_img = RgbImage::from_pixel(target_w, target_h, Rgb([fill_value, fill_value, fill_value]));
 
-    // Calculate the offset to center the original image
-    let x_offset = (target_w - w) / 2;
-    let y_offset = (target_h - h) / 2;
-
-    // Copy the original image onto the center of the padded image
-    padded_img.copy_from(&img.to_rgb8(), x_offset, y_offset).expect("Image copy failed");
+    // Copy the original image onto the padded image
+    padded_img.copy_from(&img.to_rgb8(), 0, 0).expect("Image copy failed");
 
     // Convert the padded image to DynamicImage for consistent return type
     DynamicImage::ImageRgb8(padded_img)

@@ -7,10 +7,12 @@ mod tests {
 
     #[test]
     fn test_preprocess() {
-        let w = 20;
-        let h = 20; 
+        let w = 3;
+        let h = 2; 
+        let original_w = 2;
+        let original_h = 1;
         let fill_val = 144;
-        let imgs = vec![multi_capture::pad_to_size(DynamicImage::new_rgb8(2, 4), w, h, fill_val); 3];
+        let imgs = vec![DynamicImage::new_rgb8(original_w, original_h) ; 3];
         let mut ys_truth = Array::ones((3, 3, h as usize, w as usize)).into_dyn();
         ys_truth.fill(fill_val as f32 / 255.0);
         let mut ys_test = ys_truth.clone();
@@ -25,8 +27,10 @@ mod tests {
                 ys_truth[[idx, 1, y, x]] = (g as f32) / 255.0;
                 ys_truth[[idx, 2, y, x]] = (b as f32) / 255.0;
             }
-            println!("{:?}\n\n{:?}", img, DynamicImage::new_rgb8(3, 3));
+
             // parallel solution
+            let img = multi_capture::pad_to_size(img.clone(), w, h, fill_val);
+
             let res = img
                 .as_rgb8()
                 .expect("valid RGB8")
