@@ -1,0 +1,38 @@
+commit f074c3b09fa18b9e5f61fd85fff16c1e1e7b2e07
+Author: John Zeng <johnzeng878@gmail.com>
+Date:   Fri Nov 1 18:54:13 2024 -0400
+
+    fix issue with normalization in preprocessing
+
+Time Logs: 
+----------------------------------------
+
+00:12:38 [INFO] Starting next Iteration...
+00:12:40 [INFO] Get frames: 1.6398585s
+00:12:40 [INFO] Model inference duration: 429.874875ms (Pre: 222.731875ms, Run: 149.483458ms, Post: 57.659209ms)
+00:12:40 [INFO] plot_batch duration: 29.466834ms
+00:12:40 [INFO] Total loop time: 2.099896708s
+
+00:12:40 [INFO] Starting next Iteration...
+00:12:40 [INFO] Get frames: 2.291µs
+00:12:42 [INFO] Model inference duration: 1.389055958s (Pre: 1.235043458s, Run: 93.76625ms, Post: 60.245792ms)
+00:12:42 [INFO] plot_batch duration: 145.616208ms
+00:12:42 [INFO] Total loop time: 1.53753225s
+
+00:12:42 [INFO] Starting next Iteration...
+00:12:42 [INFO] Get frames: 2.584µs
+00:12:42 [INFO] Model inference duration: 382.254625ms (Pre: 230.189875ms, Run: 95.941875ms, Post: 56.122375ms)
+00:12:42 [INFO] plot_batch duration: 28.357583ms
+00:12:42 [INFO] Total loop time: 411.158416ms
+
+00:12:42 [INFO] Starting next Iteration...
+00:12:42 [INFO] Get frames: 1.958µs
+00:12:42 [INFO] Model inference duration: 407.147042ms (Pre: 226.524167ms, Run: 125.705125ms, Post: 54.9175ms)
+00:12:42 [INFO] plot_batch duration: 29.299083ms
+00:12:42 [INFO] Total loop time: 437.048417ms
+
+00:12:42 [INFO] Starting next Iteration...
+00:12:42 [INFO] Get frames: 2.042µs
+00:12:43 [INFO] Model inference duration: 383.12725ms (Pre: 219.815958ms, Run: 100.608375ms, Post: 62.698042ms)
+00:12:43 [INFO] plot_batch duration: 32.919167ms
+00:12:43 [INFO] Total loop time: 416.945125ms
