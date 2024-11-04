@@ -126,9 +126,7 @@ pub fn start_streaming(window: tauri::Window) {
 
             if INFERENCE {
                 // run inference
-                let results = model.run(&imgs).expect("valid model result");
-
-                info!("{:?}", results);
+                let results = model.run(&imgs).expect("valid YOLOResult");
 
                 // plot images
                 let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel

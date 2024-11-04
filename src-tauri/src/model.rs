@@ -4,8 +4,8 @@ use anyhow::Result;
 use image::{DynamicImage, GenericImageView, ImageBuffer};
 use log::info;
 use ndarray::{s, Array, Axis, IxDyn};
+use ndarray::parallel::prelude::*;
 use rand::{thread_rng, Rng};
-use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -130,25 +130,26 @@ impl YOLOv8 {
 
     pub fn preprocess(&mut self, xs: &Vec<DynamicImage>) -> Result<Array<f32, IxDyn>> {
         let fill_val = 144.0 / 255.0;
-        // ys --> (num images x num channels x height x width)
-        let mut ys =
-            Array::ones((xs.len(), 3, self.height() as usize, self.width() as usize)).into_dyn();
-        ys.fill(fill_val);
 
-        for (idx, x) in xs.iter().enumerate() {
+        // ys --> (num images x num channels x height x width)
+        let mut ys = Array::uninit((xs.len(), 3, self.height() as usize, self.width() as usize)).into_dyn();
+        // Parallel fill of the uninitialized array
+        ys.as_slice_mut().unwrap().par_iter_mut().for_each(|elem| {
+            *elem = std::mem::MaybeUninit::new(fill_val);
+        });
+        // SAFETY: We've fully initialized `ys`, so we can now assume it’s safe to use.
+        let mut ys = unsafe { ys.assume_init() };
+
+        ys.axis_iter_mut(Axis(0)).into_par_iter().zip(xs.par_iter()).for_each(|(mut ys_slice, x)| {
+            // Resize the image
             let img = match self.task() {
-                YOLOTask::Classify => x.resize_exact(
-                    self.width(),
-                    self.height(),
-                    image::imageops::FilterType::Triangle,
-                ),
+                YOLOTask::Classify => x.resize_exact(self.width(), self.height(), image::imageops::FilterType::Triangle),
                 _ => {
                     let (w0, h0) = x.dimensions();
                     let w0 = w0 as f32;
                     let h0 = h0 as f32;
-                    let (_, w_new, h_new) =
-                        self.scale_wh(w0, h0, self.width() as f32, self.height() as f32); // f32 round
-                    if !(w_new == self.width() as f32 && h_new == self.height as f32) {
+                    let (_, w_new, h_new) = self.scale_wh(w0, h0, self.width() as f32, self.height() as f32);
+                    if !(w_new == self.width() as f32 && h_new == self.height() as f32) {
                         x.resize_exact(
                             w_new as u32,
                             h_new as u32,
@@ -163,62 +164,59 @@ impl YOLOv8 {
                     }
                 }
             };
-
-            let img = multi_capture::pad_to_size(img, self.height, self.width, 144);
-
-            // normalize each pixel parallely
+    
+            // Pad to target size
+            let img = multi_capture::pad_to_size(img, self.height(), self.width(), 144);
+    
+            // Normalize and reshape to h x w x 3, and copy directly into the ys slice
             let res = img
                 .as_rgb8()
                 .expect("valid RGB8")
                 .par_iter()
                 .map(|&b| (b as f32) / 255.0)
                 .collect::<Vec<_>>();
-
-            // resize from 1D to h x w x 3
-            let res =
-                Array::from_shape_vec((self.height() as usize, self.width() as usize, 3), res).expect("valid matrix");
-
-            let res = res.permuted_axes([2,0,1]); 
-
-            // assign to output array
-            ys.index_axis_mut(Axis(0), idx).assign(&res);
-        }
+    
+            let reshaped_res = Array::from_shape_vec((self.height() as usize, self.width() as usize, 3), res)
+                .expect("valid matrix")
+                .permuted_axes([2, 0, 1]);
+    
+            ys_slice.assign(&reshaped_res);
+        });
 
         Ok(ys)
     }
 
     pub fn run(&mut self, xs: &Vec<DynamicImage>) -> Result<Vec<YOLOResult>> {
-        // pre-process
         let start = Instant::now();
+
+        // pre-process
         let t_pre = std::time::Instant::now();
         let xs_ = self.preprocess(xs)?;
+        let pre_time = t_pre.elapsed();
         if self.profile {
-            info!("Preprocess duration: {:?}", t_pre.elapsed());
+            info!("Preprocess duration: {:?}", pre_time);
         }
-        let pre_time = start.elapsed();
 
         // run
-        let start = Instant::now();
         let t_run = std::time::Instant::now();
         let ys = self.engine.run(xs_, self.profile)?;
+        let run_time = t_run.elapsed();
         if self.profile {
-            info!("Run duration: {:?}", t_run.elapsed());
+            info!("Run duration: {:?}", run_time);
         }
-        let run_time = start.elapsed();
 
         // post-process
-        let start = Instant::now();
-        let t_post = std::time::Instant::now();
+        let t_post = Instant::now();
         let ys = self.postprocess(ys, xs)?;
+        let post_time = t_post.elapsed();
         if self.profile {
-            info!("Postprocess duration: {:?}", t_post.elapsed());
+            info!("Postprocess duration: {:?}", post_time);
         }
-        let post_time = start.elapsed();
 
         // log inference times
         let total = format!(
             "Model inference duration: {:?} (Pre: {:?}, Run: {:?}, Post: {:?})",
-            pre_time + run_time + post_time,
+            start.elapsed(),
             pre_time,
             run_time,
             post_time
@@ -486,10 +484,14 @@ impl YOLOv8 {
         xs0: &[DynamicImage],
     ) -> Vec<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
         let start = Instant::now();
-        let mut imgs = Vec::new();
-        for (_, (img, result)) in xs0.iter().zip(ys.iter()).enumerate() {
-            imgs.push(self.plot(result, img));
-        }
+    
+        // Process each pair in parallel
+        let imgs: Vec<_> = xs0
+            .par_iter()
+            .zip(ys.par_iter())
+            .map(|(img, result)| self.plot(result, img))
+            .collect();
+    
         info!("plot_batch duration: {:?}", start.elapsed());
         imgs
     }
