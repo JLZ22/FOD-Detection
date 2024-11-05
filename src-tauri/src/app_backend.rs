@@ -45,7 +45,7 @@ impl Payload {
 // Sets up the emitter thread for a view.
 fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: usize) {
     // ~60ms per emission excluding waiting for the next frame
-    // would only be bottleneck if we are running > 20fps 
+    // would only be bottleneck if we are running > 20fps
     loop {
         let batch = rx
             .recv()
@@ -87,9 +87,9 @@ pub fn poll_and_emit_image_sources(window: tauri::Window) {
 
 /*
 Starts the streaming process by setting up the capture threads, model thread,
-and emitter threads. The capture threads grab the frames from the camera and 
-and send them to the model thread through channels. The model thread runs the 
-batched inference on the frames, plots the results, and sends each frame to 
+and emitter threads. The capture threads grab the frames from the camera and
+and send them to the model thread through channels. The model thread runs the
+batched inference on the frames, plots the results, and sends each frame to
 their respective emitter threads. The emitter threads convert the frames to
 bytes and send them to the frontend through the window.
 */
@@ -106,8 +106,13 @@ pub fn start_streaming(window: tauri::Window) {
 
     std::thread::spawn(move || {
         info!("Starting multi-camera capture and inference loop...\n");
+        let mut loop_count = 0; // for periodic logging
         loop {
-            info!("Starting next Iteration...");
+            let log = loop_count >= 10;
+            if log {
+                info!("Starting next Iteration...");
+            }
+
             let loop_start = Instant::now();
             let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
             let mut err = vec![String::default(); NUM_CAMERAS];
@@ -127,14 +132,16 @@ pub fn start_streaming(window: tauri::Window) {
                     }
                 }
             }
-            info!("Get frames: {:?}", start.elapsed());
+            if log {
+                info!("Get frames: {:?}", start.elapsed());
+            }
 
             if INFERENCE {
                 // run inference
-                let results = model.run(&imgs).expect("valid YOLOResult");
+                let results = model.run(&imgs, log).expect("valid YOLOResult");
 
                 // plot images
-                let ploted_imgs = model.plot_batch(&results, &imgs[..]);
+                let ploted_imgs = model.plot_batch(&results, &imgs[..], log);
 
                 imgs = ploted_imgs
                     .iter()
@@ -150,10 +157,15 @@ pub fn start_streaming(window: tauri::Window) {
                 .expect("Failed to send batch to emitter thread.");
             }
 
-            info!(
-                "{}",
-                format!("Total loop time: {:?}\n", loop_start.elapsed())
-            );
+            if log {
+                info!(
+                    "{}",
+                    format!("Total loop time: {:?}\n", loop_start.elapsed())
+                );
+                loop_count = 0;
+            } else {
+                loop_count += 1;
+            }
         }
     });
 }

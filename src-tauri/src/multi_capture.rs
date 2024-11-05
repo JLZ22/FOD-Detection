@@ -1,5 +1,5 @@
 use anyhow::{bail, Error, Result};
-use image::{DynamicImage, ImageFormat, Rgb, RgbImage, GenericImage, GenericImageView};
+use image::{DynamicImage, GenericImage, GenericImageView, ImageFormat, Rgb, RgbImage};
 use mat2image::ToImage;
 use opencv::videoio::CAP_ANY;
 use opencv::{prelude::*, videoio};
@@ -168,19 +168,30 @@ pub fn convert_to_bytes(img: &DynamicImage, format: ImageFormat) -> Vec<u8> {
     buf
 }
 
-pub fn pad_to_size(img: DynamicImage, target_h: u32, target_w: u32, fill_value: u8) -> DynamicImage {
+pub fn pad_to_size(
+    img: DynamicImage,
+    target_h: u32,
+    target_w: u32,
+    fill_value: u8,
+) -> DynamicImage {
     let (w, h) = img.dimensions();
-    
+
     // If the image is already the target size, return as-is
     if w == target_w && h == target_h {
         return img;
     }
 
     // Create a new image with the target size and fill it with the fill_value (for an RGBA image)
-    let mut padded_img = RgbImage::from_pixel(target_w, target_h, Rgb([fill_value, fill_value, fill_value]));
+    let mut padded_img = RgbImage::from_pixel(
+        target_w,
+        target_h,
+        Rgb([fill_value, fill_value, fill_value]),
+    );
 
     // Copy the original image onto the padded image
-    padded_img.copy_from(&img.to_rgb8(), 0, 0).expect("Image copy failed");
+    padded_img
+        .copy_from(&img.to_rgb8(), 0, 0)
+        .expect("Image copy failed");
 
     // Convert the padded image to DynamicImage for consistent return type
     DynamicImage::ImageRgb8(padded_img)
