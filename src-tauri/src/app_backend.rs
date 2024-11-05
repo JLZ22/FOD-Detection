@@ -42,8 +42,10 @@ impl Payload {
     }
 }
 
+// Sets up the emitter thread for a view.
 fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: usize) {
     // ~60ms per emission excluding waiting for the next frame
+    // would only be bottleneck if we are running > 20fps 
     loop {
         let batch = rx
             .recv()
@@ -60,6 +62,7 @@ fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: us
     }
 }
 
+// Sets up the emitter threads for each view.
 fn setup_emitters(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::SyncSender<Batch>> {
     let mut senders = vec![];
     for (i, _) in views.iter().enumerate() {
@@ -72,6 +75,7 @@ fn setup_emitters(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::SyncSend
     senders
 }
 
+// Polls for available camera sources and emits the indices to the frontend.
 #[tauri::command]
 pub fn poll_and_emit_image_sources(window: tauri::Window) {
     std::thread::spawn(move || loop {
@@ -82,11 +86,12 @@ pub fn poll_and_emit_image_sources(window: tauri::Window) {
 }
 
 /*
-TODO: track images and errors separately to allow for more flexible error handling
-
-TODO: look into lossy compression
-TODO: increase the batch size and pull more frames per camera
-    - adjust other operations accordingly (consider multi-threading)
+Starts the streaming process by setting up the capture threads, model thread,
+and emitter threads. The capture threads grab the frames from the camera and 
+and send them to the model thread through channels. The model thread runs the 
+batched inference on the frames, plots the results, and sends each frame to 
+their respective emitter threads. The emitter threads convert the frames to
+bytes and send them to the frontend through the window.
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
@@ -129,7 +134,7 @@ pub fn start_streaming(window: tauri::Window) {
                 let results = model.run(&imgs).expect("valid YOLOResult");
 
                 // plot images
-                let ploted_imgs = model.plot_batch(&results, &imgs[..]); // TODO: implement in parallel
+                let ploted_imgs = model.plot_batch(&results, &imgs[..]);
 
                 imgs = ploted_imgs
                     .iter()
