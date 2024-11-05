@@ -112,13 +112,15 @@ pub enum LoadError {
 }
 
 pub fn run() {
-    let log_file = ".output";
-    CombinedLogger::init(vec![WriteLogger::new(
-        LevelFilter::Info,
-        Config::default(),
-        std::fs::File::create(log_file).unwrap(),
-    )])
-    .unwrap();
+    if !cfg!(debug_assertions) {
+        let log_file = ".output";
+        CombinedLogger::init(vec![WriteLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            std::fs::File::create(log_file).unwrap(),
+        )])
+        .unwrap();
+    }
 
     tauri::Builder::default()
         .setup(|_app| {
