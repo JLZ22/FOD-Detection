@@ -16,8 +16,11 @@ struct Camera {
 pub fn get_camera_indices() -> Vec<i32> {
     let mut indices = vec![];
     for i in 0..8 {
-        let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
-        if cap.is_opened().unwrap() {
+        let mut cap = match videoio::VideoCapture::new(i, videoio::CAP_ANY) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if cap.is_opened().is_ok_and(|opened| opened) {
             indices.push(i);
             cap.release().unwrap();
         }
