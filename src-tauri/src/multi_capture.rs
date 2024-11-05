@@ -8,25 +8,14 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
-pub enum Frame {
-    Image(DynamicImage),
-    Error(String),
-}
-
 struct Camera {
     cap: videoio::VideoCapture,
     index: i32,
 }
 
-enum CameraResult {
-    Camera(Camera),
-    Error(String),
-}
-
 pub fn get_camera_indices() -> Vec<i32> {
     let mut indices = vec![];
-    for i in 0..5 {
+    for i in 0..8 {
         let mut cap = videoio::VideoCapture::new(i, videoio::CAP_ANY).unwrap();
         if cap.is_opened().unwrap() {
             indices.push(i);
@@ -37,17 +26,18 @@ pub fn get_camera_indices() -> Vec<i32> {
 }
 
 // Get a frame from a video capture object and convert it to a DynamicImage
-fn get_frame_from_cap(cap: &mut videoio::VideoCapture) -> Result<DynamicImage, Error> {
+fn get_frame_from_cap(cam: &mut Camera) -> Result<DynamicImage, Error> {
     let mut img = Mat::default();
+    let cap = &mut cam.cap;
     if cap.read(&mut img).unwrap_or(false) {
         match img.to_image_par() {
             Ok(image) => Ok(image),
             Err(_) => {
-                bail!("Error: Cannot convert Mat to DynamicImage.");
+                bail!("Error: Could not convert Mat to DynamicImage.");
             }
         }
     } else {
-        bail!("Error: Cannot read frame from camera.");
+        bail!("Error: Could not read frame from camera {}. \nTip: Check camera connection.", cam.index);
     }
 }
 
@@ -60,10 +50,12 @@ fn set_cap_properties(cap: &mut videoio::VideoCapture) {
 
 fn setup_camera_update_listener(
     window: tauri::Window,
-    tx: mpsc::SyncSender<CameraResult>,
-    view: String,
+    tx: mpsc::SyncSender<Result<Camera, ()>>,
+    win_id: i32,
 ) {
-    window.listen(format!("update-camera-{}", view), move |msg| {
+    let win_clone = window.clone();
+
+    window.listen(format!("update-camera-{}", win_id), move |msg| {
         // decode the payload
         let index = match msg.payload() {
             Some(msg) => {
@@ -77,81 +69,112 @@ fn setup_camera_update_listener(
             None => -1,
         };
 
+        // check if there was an issue with the payload (index is -1)
+        if index == -1 {
+            // emit error message to the frontend
+            win_clone
+                .emit(
+                    &format!("error-{}", win_id),
+                    "Error: invalid or non-existant payload.",
+                )
+                .expect("Failed to emit error message.");
+
+            // send error message to the capture thread
+            tx.send(Err(()))
+                .expect("Reciever unexpectedly hung up when sending Err.");
+            return;
+        }
+
         let cap = videoio::VideoCapture::new(index, CAP_ANY);
 
         match cap {
             Ok(mut cap) => {
                 set_cap_properties(&mut cap);
 
-                tx.send(CameraResult::Camera(Camera { cap, index }))
+                tx.send(Ok(Camera { cap, index }))
                     .expect("Reciever unexpectedly hung up when sending Camera struct.");
             }
             Err(_) => {
-                tx.send(CameraResult::Error(format!("Camera {} is invalid.", index)))
-                    .expect("Reciever unexpectedly hung up when sending Camera struct.");
+                // emit error message to the frontend
+                win_clone
+                    .emit(
+                        &format!("error-{}", win_id),
+                        &format!("Error: Camera {} is invalid.", index),
+                    )
+                    .expect("Failed to emit error message.");
+
+                // send error message to the capture thread
+                tx.send(Err(()))
+                    .expect("Reciever unexpectedly hung up when sending Err.");
             }
         }
     });
 }
 
 /*
-Intended to be run in a separate thread. Continuously captures frames from a camera and
-listens to update-camera events from the frontend to change the camera index.
+Continuously captures frames from a camera and listens to 
+update-camera events from the frontend to change the camera index.
 */
-fn setup_capture(tx: mpsc::SyncSender<Frame>, window: tauri::Window, view: String) {
-    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<CameraResult>(1);
-    setup_camera_update_listener(window.clone(), tx_camera_update, view);
+fn setup_capture(
+    tx: mpsc::SyncSender<Result<DynamicImage, ()>>,
+    window: tauri::Window,
+    win_id: i32,
+) {
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Result<Camera, ()>>(1);
+    setup_camera_update_listener(window.clone(), tx_camera_update, win_id);
 
-    let cap = videoio::VideoCapture::new(0, videoio::CAP_ANY);
+    // initialize the camera to error state, allowing 
+    // it to be updated in the following loop
+    let mut cam = Err(());
 
-    let mut cam_result = match cap {
-        Ok(mut cap) => {
-            set_cap_properties(&mut cap);
-
-            CameraResult::Camera(Camera { cap, index: 0 })
-        }
-        Err(_) => CameraResult::Error("Camera 0 is invalid.".to_string()),
-    };
-
-    // resize takes up ~90% of processing time (500ms / 550ms)
     loop {
-        match cam_result {
-            CameraResult::Camera(ref mut c) => match get_frame_from_cap(&mut c.cap) {
-                Ok(img) => {
-                    if tx.try_send(Frame::Image(img)).is_err() {
-                        thread::sleep(Duration::from_millis(10));
+        // check if the camera is valid
+        match cam {
+            Ok(ref mut c) => 
+                // check if the frame retrieval was successful
+                match get_frame_from_cap(c) {
+                    Ok(img) => {
+                        // send to inference thread if it is ready to recieve
+                        // otherwise, discard the frame
+                        if tx.try_send(Ok(img)).is_err() {
+                            thread::sleep(Duration::from_millis(10));
+                        }
                     }
-                }
-                Err(_) => {
-                    tx.send(Frame::Error(format!(
-                        "Could not retrieve frame from camera {}.",
-                        c.index
-                    )))
-                    .expect("Failed to send error message.");
-                    thread::sleep(Duration::from_millis(100));
-                }
+                    Err(e) => {
+                        // emit the frame retrieval error to the frontend
+                        window
+                            .emit(&format!("error-{}", win_id), &e.to_string())
+                            .expect("Failed to emit error message.");
+
+                        // send empty error to the inference thread
+                        tx.send(Err(())).expect("Failed to send error message.");
+                        thread::sleep(Duration::from_millis(50));
+                    }
             },
-            CameraResult::Error(ref e) => {
-                tx.send(Frame::Error(e.clone()))
-                    .expect("Failed to send error message.");
-                thread::sleep(Duration::from_millis(100));
+            // Do nothing if the camera is invalid. Error has already been emitted.
+            _ => {
+                thread::sleep(Duration::from_millis(50));
             }
         }
 
         // check for camera update
         if let Ok(c) = rx_camera_update.try_recv() {
-            cam_result = c;
+            cam = c;
         }
     }
 }
 
-pub fn setup_captures(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::Receiver<Frame>> {
+
+// Set up capture threads for each camera and return a vector of recievers
+pub fn setup_captures(
+    window: tauri::Window,
+    num_cameras: i32,
+) -> Vec<mpsc::Receiver<Result<DynamicImage, ()>>> {
     let mut recievers = vec![];
-    for view in views {
-        let (tx, rx) = mpsc::sync_channel::<Frame>(1);
+    for i in 0..num_cameras {
+        let (tx, rx) = mpsc::sync_channel::<Result<DynamicImage, ()>>(1);
         let w_clone = window.clone();
-        let view = view.to_string().clone();
-        thread::spawn(move || setup_capture(tx, w_clone, view));
+        thread::spawn(move || setup_capture(tx, w_clone, i));
         recievers.push(rx);
     }
 
@@ -162,6 +185,7 @@ pub fn convert_to_bytes(img: &DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut writer = std::io::BufWriter::new(Cursor::new(&mut buf));
 
+    // Write the image to the buffer
     img.write_to(&mut writer, format).unwrap();
     drop(writer); // drop to flush the writer and ensure all data is written
 

@@ -8,35 +8,34 @@
 
     let error_message: string = '';
     let img_url: string;
-    let last_frame_time = new Date();
 
     onMount(() => {
-        let unlisten: () => void; 
-        const setup_listener = async () => {
-             unlisten = await listen(`image-payload-${winId}`, (event) => {
-                const {image, error} = event.payload as {image: Uint8Array, error: string};
-                let frame_recieved_time = new Date();
-                console.log(`Time since last frame for ${windowName}: ${frame_recieved_time.getTime() - last_frame_time.getTime()}ms`);
-                
-                if (error) {
-                    error_message = error;
-                } else {
-                    if (!image || image.length === 0) {
-                        error_message = 'No image data received';
-                        return;
-                    }
-                    error_message = '';
-                    updateUrl(URL.createObjectURL(new Blob([new Uint8Array(image).buffer])));
+        let unlisten_img: () => void; 
+        let unlisten_err: () => void;
+        const setup_listeners = async () => {
+            unlisten_img = await listen(`image-payload-${winId}`, (event) => {
+                const image = event.payload as Uint8Array;
+                if (!image || image.length === 0) {
+                    error_message = 'No image data received';
+                    return;
                 }
-                
-                last_frame_time = new Date();
+
+                error_message = '';
+                updateUrl(URL.createObjectURL(new Blob([new Uint8Array(image).buffer])));
+            });
+
+            unlisten_err = await listen(`error-${winId}`, (event) => {
+                error_message = event.payload as string;
+                URL.revokeObjectURL(img_url);
+                img_url = '';
             });
         }
         
-        setup_listener();
+        setup_listeners();
 
         return () => {
-            unlisten();
+            unlisten_img();
+            unlisten_err();
         }
     })
 
@@ -59,7 +58,6 @@ img {
 <div>
     <h2>{windowName}</h2>
 </div>
-<!--TODO add display logic-->
 <div>
     {#if error_message}
         <p>{error_message}</p>

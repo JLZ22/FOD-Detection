@@ -3,72 +3,40 @@ use crate::model::YOLOv8;
 use crate::multi_capture::{self, setup_captures};
 use image::{DynamicImage, ImageFormat};
 use log::info;
-use serde::Serialize;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const NUM_CAMERAS: usize = 3;
-const VIEWS: [&str; NUM_CAMERAS] = ["top", "left", "front"];
 const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
 const IMAGE_FORMAT: ImageFormat = ImageFormat::Bmp;
 
-struct Batch {
-    image: DynamicImage,
-    error: String,
-}
-
-// This could be an enum but it is ~5-10ms slower
-#[derive(Debug, Clone, Serialize)]
-struct Payload {
-    image: Vec<u8>,
-    error: String,
-}
-
-impl Default for Payload {
-    fn default() -> Self {
-        Self {
-            image: vec![],
-            error: "".to_string(),
-        }
-    }
-}
-
-impl Payload {
-    fn new(image: Vec<u8>, error: String) -> Self {
-        Self { image, error }
-    }
-}
-
 // Sets up the emitter thread for a view.
-fn setup_emitter(rx: mpsc::Receiver<Batch>, window: tauri::Window, win_index: usize) {
+fn setup_emitter(rx: mpsc::Receiver<DynamicImage>, window: tauri::Window, win_index: usize) {
     // ~60ms per emission excluding waiting for the next frame
     // would only be bottleneck if we are running > 20fps
     loop {
-        let batch = rx
+        let img = rx
             .recv()
             .expect("Failed to recieve batch from capture thread.");
         window
             .emit(
                 &format!("image-payload-{}", win_index)[..],
-                Payload::new(
-                    multi_capture::convert_to_bytes(&batch.image, IMAGE_FORMAT),
-                    batch.error,
-                ),
+                multi_capture::convert_to_bytes(&img, IMAGE_FORMAT),
             )
             .expect("Failed to emit image payload.");
     }
 }
 
 // Sets up the emitter threads for each view.
-fn setup_emitters(window: tauri::Window, views: Vec<&str>) -> Vec<mpsc::SyncSender<Batch>> {
+fn setup_emitters(window: tauri::Window, num_cameras: i32) -> Vec<mpsc::SyncSender<DynamicImage>> {
     let mut senders = vec![];
-    for (i, _) in views.iter().enumerate() {
-        let (tx, rx) = mpsc::sync_channel::<Batch>(5);
+    for i in 0..num_cameras {
+        let (tx, rx) = mpsc::sync_channel::<DynamicImage>(5);
         let w_clone = window.clone();
-        thread::spawn(move || setup_emitter(rx, w_clone, i));
+        thread::spawn(move || setup_emitter(rx, w_clone, i as usize));
         senders.push(tx);
     }
 
@@ -100,22 +68,21 @@ pub fn start_streaming(window: tauri::Window) {
     let mut model = YOLOv8::new(Args::new_from_toml(Path::new("./model_args.toml"))).unwrap();
 
     // setup capture threads
-    let frame_recievers = setup_captures(window.clone(), VIEWS.to_vec());
+    let frame_recievers = setup_captures(window.clone(), NUM_CAMERAS as i32);
     // set up emitter threads
-    let payload_senders = setup_emitters(window.clone(), VIEWS.to_vec());
+    let payload_senders = setup_emitters(window.clone(), NUM_CAMERAS as i32);
 
+    // spawn inference thread to listen for frames, run inference, 
+    // and pass results to emitter threads
     std::thread::spawn(move || {
         info!("Starting multi-camera capture and inference loop...\n");
         let mut loop_count = 0; // for periodic logging
         loop {
             let log = loop_count >= 10;
-            if log {
-                info!("Starting next Iteration...");
-            }
 
             let loop_start = Instant::now();
             let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
-            let mut err = vec![String::default(); NUM_CAMERAS];
+            let mut err = vec![false; NUM_CAMERAS];
 
             // get a Frame from reciever and update imgs/err appropriately
             let start = Instant::now();
@@ -124,11 +91,11 @@ pub fn start_streaming(window: tauri::Window) {
                     .recv()
                     .expect("Failed to recieve frame from capture thread.");
                 match frame {
-                    multi_capture::Frame::Image(img) => {
+                    Ok(img) => {
                         imgs[i] = img;
                     }
-                    multi_capture::Frame::Error(e) => {
-                        err[i] = e;
+                    Err(_) => {
+                        err[i] = true;
                     }
                 }
             }
@@ -150,11 +117,10 @@ pub fn start_streaming(window: tauri::Window) {
             }
 
             for (i, tx) in payload_senders.iter().enumerate() {
-                tx.send(Batch {
-                    image: imgs[i].clone(),
-                    error: err[i].clone(),
-                })
-                .expect("Failed to send batch to emitter thread.");
+                if !err[i] {
+                    tx.send(imgs[i].clone())
+                        .expect("Failed to send batch to emitter thread.");
+                }
             }
 
             if log {

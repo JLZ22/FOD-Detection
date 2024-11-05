@@ -10,13 +10,13 @@
 		invoke('start_streaming');
 		
 		const unsubscribe_top = top.subscribe(value => {
-			emit('update-camera-top', value);
+			emit('update-camera-0', value);
 		});
 		const unsubscribe_front = front.subscribe(value => {
-			emit('update-camera-front', value);
+			emit('update-camera-1', value);
 		});
 		const unsubscribe_left = left.subscribe(value => {
-			emit('update-camera-left', value);
+			emit('update-camera-2', value);
 		});
 
 
