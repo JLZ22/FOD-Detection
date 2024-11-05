@@ -60,6 +60,8 @@ and send them to the model thread through channels. The model thread runs the
 batched inference on the frames, plots the results, and sends each frame to
 their respective emitter threads. The emitter threads convert the frames to
 bytes and send them to the frontend through the window.
+
+TODO: name all threads 
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
@@ -74,7 +76,8 @@ pub fn start_streaming(window: tauri::Window) {
 
     // spawn inference thread to listen for frames, run inference, 
     // and pass results to emitter threads
-    std::thread::spawn(move || {
+    thread::Builder::new()
+    .name("inference thread".to_string()).spawn(move || {
         info!("Starting multi-camera capture and inference loop...\n");
         let mut loop_count = 0; // for periodic logging
         loop {
@@ -133,5 +136,5 @@ pub fn start_streaming(window: tauri::Window) {
                 loop_count += 1;
             }
         }
-    });
+    }).expect("Failed to spawn thread");
 }
