@@ -3,7 +3,16 @@
 
 fn main() {
     if !cfg!(debug_assertions) {
-        std::env::set_current_dir(std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().join("Resources")).unwrap();
+        std::env::set_current_dir(
+            std::env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("Resources"),
+        )
+        .unwrap();
     }
     app::run();
 }

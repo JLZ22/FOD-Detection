@@ -40,7 +40,10 @@ fn get_frame_from_cap(cam: &mut Camera) -> Result<DynamicImage, Error> {
             }
         }
     } else {
-        bail!("Error: Could not read frame from camera {}. \nTip: Check camera connection.", cam.index);
+        bail!(
+            "Error: Could not read frame from camera {}. \nTip: Check camera connection.",
+            cam.index
+        );
     }
 }
 
@@ -115,7 +118,7 @@ fn setup_camera_update_listener(
 }
 
 /*
-Continuously captures frames from a camera and listens to 
+Continuously captures frames from a camera and listens to
 update-camera events from the frontend to change the camera index.
 */
 fn setup_capture(
@@ -126,15 +129,16 @@ fn setup_capture(
     let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Result<Camera, ()>>(1);
     setup_camera_update_listener(window.clone(), tx_camera_update, win_id);
 
-    // initialize the camera to error state, allowing 
+    // initialize the camera to error state, allowing
     // it to be updated in the following loop
     let mut cam = Err(());
 
     loop {
         // check if the camera is valid
         match cam {
-            Ok(ref mut c) => 
-                // check if the frame retrieval was successful
+            Ok(ref mut c) =>
+            // check if the frame retrieval was successful
+            {
                 match get_frame_from_cap(c) {
                     Ok(img) => {
                         // send to inference thread if it is ready to recieve
@@ -153,7 +157,8 @@ fn setup_capture(
                         tx.send(Err(())).expect("Failed to send error message.");
                         thread::sleep(Duration::from_millis(50));
                     }
-            },
+                }
+            }
             // Do nothing if the camera is invalid. Error has already been emitted.
             _ => {
                 thread::sleep(Duration::from_millis(50));
@@ -166,7 +171,6 @@ fn setup_capture(
         }
     }
 }
-
 
 // Set up capture threads for each camera and return a vector of recievers
 pub fn setup_captures(
