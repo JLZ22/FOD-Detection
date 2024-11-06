@@ -31,6 +31,7 @@
     <label for="Top View">Top View:</label>
     {#if available_cameras.length > 0}
         <select id="top" bind:value={$top}>
+            <option value="" disabled selected>Select a camera</option>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}
@@ -44,6 +45,7 @@
     <label for="Right View">Right View:</label>
     {#if available_cameras.length > 0}
         <select id="front" bind:value={$front}>
+            <option value="" disabled selected>Select a camera</option>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}
@@ -57,6 +59,7 @@
     <label for="Left View">Left View:</label>
     {#if available_cameras.length > 0}
         <select id="left" bind:value={$left}>
+            <option value="" disabled selected>Select a camera</option>
             {#each available_cameras as option}
                 <option value={option}>{option}</option>
             {/each}

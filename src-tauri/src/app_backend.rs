@@ -12,6 +12,7 @@ const NUM_CAMERAS: usize = 3;
 const POLL_DURATION: Duration = Duration::from_secs(30);
 const INFERENCE: bool = true;
 const IMAGE_FORMAT: ImageFormat = ImageFormat::Bmp;
+const LOG_INTERVAL: u32 = 5; 
 
 // Sets up the emitter thread for a view.
 fn setup_emitter(rx: mpsc::Receiver<DynamicImage>, window: tauri::Window, win_index: usize) {
@@ -86,7 +87,7 @@ pub fn start_streaming(window: tauri::Window) {
             info!("Starting multi-camera capture and inference loop...\n");
             let mut loop_count = 0; // for periodic logging
             loop {
-                let log = loop_count >= 10;
+                let log = loop_count >= LOG_INTERVAL;
 
                 let loop_start = Instant::now();
                 let mut imgs = vec![DynamicImage::new_rgb8(0, 0); NUM_CAMERAS];

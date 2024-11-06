@@ -19,7 +19,6 @@
 			emit('update-camera-2', value);
 		});
 
-
 		return () => {
 			unsubscribe_top();
 			unsubscribe_front();

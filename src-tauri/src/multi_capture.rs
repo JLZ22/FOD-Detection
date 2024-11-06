@@ -56,11 +56,9 @@ fn set_cap_properties(cap: &mut videoio::VideoCapture) {
 
 fn setup_camera_update_listener(
     window: tauri::Window,
-    tx: mpsc::SyncSender<Result<Camera, ()>>,
+    tx: mpsc::SyncSender<Result<Camera, String>>,
     win_id: i32,
 ) {
-    let win_clone = window.clone();
-
     window.listen(format!("update-camera-{}", win_id), move |msg| {
         // decode the payload
         let index = match msg.payload() {
@@ -75,19 +73,9 @@ fn setup_camera_update_listener(
             None => -1,
         };
 
-        // check if there was an issue with the payload (index is -1)
+        // check if there was an issue with the payload 
+        // or if no camera has been selected yet (index is -1)
         if index == -1 {
-            // emit error message to the frontend
-            win_clone
-                .emit(
-                    &format!("error-{}", win_id),
-                    "Error: invalid or non-existant payload.",
-                )
-                .expect("Failed to emit error message.");
-
-            // send error message to the capture thread
-            tx.send(Err(()))
-                .expect("Reciever unexpectedly hung up when sending Err.");
             return;
         }
 
@@ -101,16 +89,8 @@ fn setup_camera_update_listener(
                     .expect("Reciever unexpectedly hung up when sending Camera struct.");
             }
             Err(_) => {
-                // emit error message to the frontend
-                win_clone
-                    .emit(
-                        &format!("error-{}", win_id),
-                        &format!("Error: Camera {} is invalid.", index),
-                    )
-                    .expect("Failed to emit error message.");
-
                 // send error message to the capture thread
-                tx.send(Err(()))
+                tx.send(Err(format!("Error: Camera {} is invalid.", index)))
                     .expect("Reciever unexpectedly hung up when sending Err.");
             }
         }
@@ -126,12 +106,12 @@ fn setup_capture(
     window: tauri::Window,
     win_id: i32,
 ) {
-    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Result<Camera, ()>>(1);
+    let (tx_camera_update, rx_camera_update) = mpsc::sync_channel::<Result<Camera, String>>(1);
     setup_camera_update_listener(window.clone(), tx_camera_update, win_id);
 
     // initialize the camera to error state, allowing
     // it to be updated in the following loop
-    let mut cam = Err(());
+    let mut cam = Err("No camera selected.".to_string());
 
     loop {
         // check if the camera is valid
@@ -160,8 +140,12 @@ fn setup_capture(
                 }
             }
             // Do nothing if the camera is invalid. Error has already been emitted.
-            _ => {
-                thread::sleep(Duration::from_millis(50));
+            Err(ref e) => {
+                window.emit(
+                    &format!("error-{}", win_id),
+                    &e.to_string(),
+                ).expect("Failed to emit error message.");
+                thread::sleep(Duration::from_millis(1));
             }
         }
 
