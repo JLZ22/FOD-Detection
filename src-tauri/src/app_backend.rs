@@ -36,7 +36,10 @@ fn setup_emitters(window: tauri::Window, num_cameras: i32) -> Vec<mpsc::SyncSend
     for i in 0..num_cameras {
         let (tx, rx) = mpsc::sync_channel::<DynamicImage>(5);
         let w_clone = window.clone();
-        thread::spawn(move || setup_emitter(rx, w_clone, i as usize));
+        thread::Builder::new()
+            .name(format!("emitter thread {i}"))
+            .spawn(move || setup_emitter(rx, w_clone, i as usize))
+            .expect("Failed to spawn emitter thread.");
         senders.push(tx);
     }
 
@@ -46,11 +49,14 @@ fn setup_emitters(window: tauri::Window, num_cameras: i32) -> Vec<mpsc::SyncSend
 // Polls for available camera sources and emits the indices to the frontend.
 #[tauri::command]
 pub fn poll_and_emit_image_sources(window: tauri::Window) {
-    std::thread::spawn(move || loop {
-        let indices = multi_capture::get_camera_indices();
-        window.emit("available-cameras", indices).unwrap();
-        std::thread::sleep(POLL_DURATION);
-    });
+    thread::Builder::new()
+        .name("Poll image sources thread".to_string())
+        .spawn(move || loop {
+            let indices = multi_capture::get_camera_indices();
+            window.emit("available-cameras", indices).unwrap();
+            std::thread::sleep(POLL_DURATION);
+        })
+        .expect("Failed to spawn poll image sources thread.");
 }
 
 /*
@@ -60,8 +66,6 @@ and send them to the model thread through channels. The model thread runs the
 batched inference on the frames, plots the results, and sends each frame to
 their respective emitter threads. The emitter threads convert the frames to
 bytes and send them to the frontend through the window.
-
-TODO: name all threads
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {

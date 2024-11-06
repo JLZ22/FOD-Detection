@@ -181,7 +181,10 @@ pub fn setup_captures(
     for i in 0..num_cameras {
         let (tx, rx) = mpsc::sync_channel::<Result<DynamicImage, ()>>(1);
         let w_clone = window.clone();
-        thread::spawn(move || setup_capture(tx, w_clone, i));
+        thread::Builder::new()
+            .name(format!("capture thread {i}"))
+            .spawn(move || setup_capture(tx, w_clone, i))
+            .expect("Failed to spawn capture thread.");
         recievers.push(rx);
     }
 
