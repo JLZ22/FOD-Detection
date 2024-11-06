@@ -61,7 +61,7 @@ batched inference on the frames, plots the results, and sends each frame to
 their respective emitter threads. The emitter threads convert the frames to
 bytes and send them to the frontend through the window.
 
-TODO: name all threads 
+TODO: name all threads
 */
 #[tauri::command]
 pub fn start_streaming(window: tauri::Window) {
@@ -74,67 +74,69 @@ pub fn start_streaming(window: tauri::Window) {
     // set up emitter threads
     let payload_senders = setup_emitters(window.clone(), NUM_CAMERAS as i32);
 
-    // spawn inference thread to listen for frames, run inference, 
+    // spawn inference thread to listen for frames, run inference,
     // and pass results to emitter threads
     thread::Builder::new()
-    .name("inference thread".to_string()).spawn(move || {
-        info!("Starting multi-camera capture and inference loop...\n");
-        let mut loop_count = 0; // for periodic logging
-        loop {
-            let log = loop_count >= 10;
+        .name("inference thread".to_string())
+        .spawn(move || {
+            info!("Starting multi-camera capture and inference loop...\n");
+            let mut loop_count = 0; // for periodic logging
+            loop {
+                let log = loop_count >= 10;
 
-            let loop_start = Instant::now();
-            let mut imgs = vec![DynamicImage::new_rgba8(0, 0); NUM_CAMERAS];
-            let mut err = vec![false; NUM_CAMERAS];
+                let loop_start = Instant::now();
+                let mut imgs = vec![DynamicImage::new_rgb8(0, 0); NUM_CAMERAS];
+                let mut err = vec![false; NUM_CAMERAS];
 
-            // get a Frame from reciever and update imgs/err appropriately
-            let start = Instant::now();
-            for (i, rx) in frame_recievers.iter().enumerate() {
-                let frame = rx
-                    .recv()
-                    .expect("Failed to recieve frame from capture thread.");
-                match frame {
-                    Ok(img) => {
-                        imgs[i] = img;
-                    }
-                    Err(_) => {
-                        err[i] = true;
+                // get a Frame from reciever and update imgs/err appropriately
+                let start = Instant::now();
+                for (i, rx) in frame_recievers.iter().enumerate() {
+                    let frame = rx
+                        .recv()
+                        .expect("Failed to recieve frame from capture thread.");
+                    match frame {
+                        Ok(img) => {
+                            imgs[i] = img;
+                        }
+                        Err(_) => {
+                            err[i] = true;
+                        }
                     }
                 }
-            }
-            if log {
-                info!("Get frames: {:?}", start.elapsed());
-            }
+                if log {
+                    info!("Get frames: {:?}", start.elapsed());
+                }
 
-            if INFERENCE {
-                // run inference
-                let results = model.run(&imgs, log).expect("valid YOLOResult");
+                if INFERENCE {
+                    // run inference
+                    let results = model.run(&imgs, log).expect("valid YOLOResult");
 
-                // plot images
-                let ploted_imgs = model.plot_batch(&results, &imgs[..], log);
+                    // plot images
+                    let ploted_imgs = model.plot_batch(&results, &imgs[..], log);
 
-                imgs = ploted_imgs
-                    .iter()
-                    .map(|img| DynamicImage::ImageRgb8(img.clone()))
-                    .collect();
-            }
+                    imgs = ploted_imgs
+                        .iter()
+                        .map(|img| DynamicImage::ImageRgb8(img.clone()))
+                        .collect();
+                }
 
-            for (i, tx) in payload_senders.iter().enumerate() {
-                if !err[i] {
-                    tx.send(imgs[i].clone())
-                        .expect("Failed to send batch to emitter thread.");
+                for (i, tx) in payload_senders.iter().enumerate() {
+                    if !err[i] {
+                        tx.send(imgs[i].clone())
+                            .expect("Failed to send batch to emitter thread.");
+                    }
+                }
+
+                if log {
+                    info!(
+                        "{}",
+                        format!("Total loop time: {:?}\n", loop_start.elapsed())
+                    );
+                    loop_count = 0;
+                } else {
+                    loop_count += 1;
                 }
             }
-
-            if log {
-                info!(
-                    "{}",
-                    format!("Total loop time: {:?}\n", loop_start.elapsed())
-                );
-                loop_count = 0;
-            } else {
-                loop_count += 1;
-            }
-        }
-    }).expect("Failed to spawn thread");
+        })
+        .expect("Failed to spawn thread");
 }
