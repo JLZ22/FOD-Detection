@@ -7,7 +7,7 @@
     "distDir": "../build"
   },
   "package": {
-    "productName": "fod-detection ",
+    "productName": "fod-detection",
     "version": "0.1.0"
   },
   "tauri": {
@@ -37,11 +37,11 @@
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
-        "frameworks": [],
+        "frameworks": ["target/release/libonnxruntime.dylib"],
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": ["models/yolov8n.onnx", "fonts/Arial.ttf"],
       "shortDescription": "",
       "targets": "all",
       "windows": {
